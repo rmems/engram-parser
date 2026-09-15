@@ -1,0 +1,21 @@
+src/gguf/map.rs
+  s_444ff6bfb217bc::t_6186df6dea7048 204,207-221
+src/safetensors/manifest.rs
+  s_444ff6bfb217bc::t_1a278513365b15 503
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c3eb2b98364996f5b7fa70e59989a5cba0a8993d",
+  "prompts": {},
+  "sessions": {
+    "s_444ff6bfb217bc": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "a09a3773-387d-4b9e-9e88-7dda880cdefa",
+        "model": "cursor-grok-4.6-high"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
