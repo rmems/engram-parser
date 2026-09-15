@@ -357,6 +357,9 @@ fn row_size_for_block(
 }
 
 fn require_multiple(width: usize, block: usize, label: &str) -> Result<()> {
+    if width == 0 {
+        return Err(unsupported(format!("{label} width must be positive")));
+    }
     if width.is_multiple_of(block) {
         Ok(())
     } else {
@@ -537,6 +540,7 @@ mod tests {
         assert!(dequantize_iq3_m(&[0u8; 111], &[255]).is_err());
         assert!(dequantize_iq3_m(&[0u8; 110], &[256]).is_err());
         assert!(dequantize_q5_k(&[0u8; 176], &[]).is_err());
+        assert!(dequantize_q8_0(&[], &[0]).is_err());
         assert!(dequantize_packed(DType::F32, &[0u8; 4], &[1]).is_err());
         assert!(dequantize_packed(DType::Other(31), &[0u8; 18], &[32]).is_err());
     }

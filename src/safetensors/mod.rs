@@ -43,10 +43,16 @@ pub use manifest::{
 pub use validate::dtype_size_bytes;
 
 pub(super) fn relative_path(path: &Path, root: &Path) -> String {
-    path.strip_prefix(root)
-        .unwrap_or(path)
-        .to_string_lossy()
-        .replace('\\', "/")
+    let stripped = path.strip_prefix(root).unwrap_or(path);
+    let lossy = stripped.to_string_lossy();
+    #[cfg(windows)]
+    {
+        lossy.replace('\\', "/")
+    }
+    #[cfg(not(windows))]
+    {
+        lossy.into_owned()
+    }
 }
 
 pub(super) fn model_load(path: &Path, reason: String) -> ParserError {

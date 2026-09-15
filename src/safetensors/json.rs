@@ -413,6 +413,9 @@ impl<'a> JsonParser<'a> {
             let n: f64 = token
                 .parse()
                 .map_err(|_| self.error("number out of range"))?;
+            if !n.is_finite() {
+                return Err(self.error("number out of range"));
+            }
             JsonNumber::F64(n)
         } else if token.starts_with('-') {
             let n: i64 = token
@@ -590,6 +593,15 @@ mod tests {
         let json = r#"{"dup": 1, "dup": 2}"#;
         let err = parse_json(json, "test").unwrap_err();
         assert!(err.to_string().contains("duplicate JSON key"));
+    }
+
+    #[test]
+    fn rejects_non_finite_numbers() {
+        let err = parse_json("1e400", "test").unwrap_err();
+        assert!(
+            err.to_string().contains("number out of range"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]

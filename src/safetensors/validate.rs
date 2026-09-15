@@ -2,15 +2,15 @@
 //! Safetensors byte-range and output-path validation helpers.
 
 use super::manifest::{
-    INDEX_UNREFERENCED_SHARDS_KEY, SafetensorsManifest, SafetensorsTensorRecord,
-    parse_unreferenced_shards_metadata,
+    INDEX_UNREFERENCED_SHARDS_KEY, SAFETENSORS_EXTENSION, SafetensorsManifest,
+    SafetensorsTensorRecord, parse_unreferenced_shards_metadata,
 };
 use super::model_load;
 use super::paths::{canonical_existing_or_parent, parent_or_current, paths_refer_to_same_file};
 use crate::error::Result;
 use std::collections::BTreeSet;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub(super) fn reject_tensor_data_ranges(
     path: &Path,
@@ -135,6 +135,9 @@ pub(super) fn reject_output_checkpoint_conflict(
     if input_metadata.is_file() {
         checkpoint_files.insert(checkpoint_path.to_path_buf());
     }
+    if input_metadata.is_dir() {
+        checkpoint_files.extend(directory_safetensors_paths(checkpoint_path)?);
+    }
     if let Some(index_file) = &manifest.checkpoint.index_file {
         checkpoint_files.insert(root.join(index_file));
     }
@@ -167,4 +170,20 @@ pub(super) fn reject_output_checkpoint_conflict(
     }
 
     Ok(())
+}
+
+fn directory_safetensors_paths(dir: &Path) -> Result<BTreeSet<PathBuf>> {
+    let mut paths = BTreeSet::new();
+    let entries = fs::read_dir(dir).map_err(|e| {
+        model_load(dir, format!("read checkpoint directory for overwrite guard: {e}"))
+    })?;
+    for entry in entries {
+        let entry =
+            entry.map_err(|e| model_load(dir, format!("read checkpoint directory entry: {e}")))?;
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) == Some(SAFETENSORS_EXTENSION) {
+            paths.insert(path);
+        }
+    }
+    Ok(paths)
 }
