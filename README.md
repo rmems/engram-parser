@@ -69,7 +69,7 @@ This crate **does not own**:
 - CUDA acceleration → [`myelin-accelerator`](https://github.com/Limen-Neural/myelin-accelerator);
 - end-to-end SAAQ experimentation → [`corinth-canal`](https://github.com/rmems/corinth-canal).
 
-**Allowed dependencies:** none on the default path. `[dependencies]` is empty unless the `mmap` feature is enabled, in which case optional `memmap2` is the only extra crate. The `safetensors` feature stays zero-dep (in-crate JSON, no `serde_json` / upstream `safetensors` crate).
+**Allowed dependencies:** none on the default path. Cargo enables no crates unless `--features mmap`, which activates optional `memmap2` (the only extra crate). The `safetensors` feature stays zero-dep (in-crate JSON, no `serde_json` / upstream `safetensors` crate).
 
 **Forbidden dependencies:** inference frameworks, GPU backends, domain-specific adapters, and any dependency on `corinth-canal`.
 

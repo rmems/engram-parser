@@ -151,6 +151,12 @@ impl GgufLayoutMmap {
                 reason: format!("tensor '{}' page-range overflow", tensor.name),
             })?;
         let page = os_page_size();
+        if page == 0 {
+            return Err(ParserError::InvalidLayout {
+                path: self.path.clone(),
+                reason: "invalid OS page size: 0".to_string(),
+            });
+        }
         let aligned_start = (start / page) * page;
         let aligned_end = align_up_saturating(end, page, self.mmap.len());
         if aligned_end > self.mmap.len() || aligned_start > self.mmap.len() {
@@ -187,7 +193,10 @@ impl GgufLayoutMmap {
 
 /// OS page size used for [`GgufLayoutMmap::tensor_page_aligned_bytes`].
 pub fn os_page_size() -> usize {
-    unix_page_size().unwrap_or(4096)
+    match unix_page_size() {
+        Some(n) if n > 0 => n,
+        _ => 4096,
+    }
 }
 
 #[cfg(unix)]

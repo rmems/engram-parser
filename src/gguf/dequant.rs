@@ -181,13 +181,16 @@ pub(crate) fn dequantize_row_q5_k(row: &[u8], width: usize) -> Result<Vec<f32>> 
             let d2 = d * sc2 as f32;
             let mn2 = dmin * m2 as f32;
 
+            // ggml writes 32 low nibbles, then 32 high nibbles (`y[l]`, `y[l+32]`).
+            let mut group = [0f32; 64];
             for (lane, &q) in ql_chunk.iter().enumerate() {
                 let qh_byte = qh[lane];
                 let hi1 = if qh_byte & u1 != 0 { 16 } else { 0 };
                 let hi2 = if qh_byte & u2 != 0 { 16 } else { 0 };
-                out.push(d1 * ((q & 0x0F) + hi1) as f32 - mn1);
-                out.push(d2 * ((q >> 4) + hi2) as f32 - mn2);
+                group[lane] = d1 * ((q & 0x0F) + hi1) as f32 - mn1;
+                group[lane + 32] = d2 * ((q >> 4) + hi2) as f32 - mn2;
             }
+            out.extend_from_slice(&group);
 
             is += 2;
             u1 <<= 2;
@@ -203,14 +206,17 @@ pub(crate) fn dequantize_row_q6_k(row: &[u8], width: usize) -> Result<Vec<f32>> 
     let mut out = Vec::with_capacity(width);
     let (blocks, _) = row.as_chunks::<Q6_K_BYTES>();
     for block in blocks {
-        let d = f16_bits_to_f32(u16::from_le_bytes([block[0], block[1]]));
-        let scales = &block[2..18];
-        let ql = &block[18..146];
-        let qh = &block[146..Q6_K_BYTES];
-        for pass in 0..2u8 {
-            let base = (pass as usize) * 64;
-            let qh_base = (pass as usize) * 32;
-            let sc_pass_base = (pass as usize) * 8;
+        // ggml `block_q6_K`: ql(128) + qh(64) + scales(16) + d(2).
+        let ql = &block[0..128];
+        let qh = &block[128..192];
+        let scales = &block[192..208];
+        let d = f16_bits_to_f32(u16::from_le_bytes([block[208], block[209]]));
+        let mut decoded = [0f32; K_BLOCK];
+        for pass in 0..2usize {
+            let y = &mut decoded[pass * 128..];
+            let base = pass * 64;
+            let qh_base = pass * 32;
+            let sc_pass_base = pass * 8;
             for l in 0..32 {
                 let is = l / 16;
                 let q1 = ((ql[base + l] & 0x0F) | ((qh[qh_base + l] & 3) << 4)) as i8 - 32;
@@ -219,12 +225,13 @@ pub(crate) fn dequantize_row_q6_k(row: &[u8], width: usize) -> Result<Vec<f32>> 
                 let q3 = ((ql[base + l] >> 4) | (((qh[qh_base + l] >> 4) & 3) << 4)) as i8 - 32;
                 let q4 =
                     ((ql[base + 32 + l] >> 4) | (((qh[qh_base + l] >> 6) & 3) << 4)) as i8 - 32;
-                out.push(d * (scales[sc_pass_base + is] as i8) as f32 * q1 as f32);
-                out.push(d * (scales[sc_pass_base + is + 2] as i8) as f32 * q2 as f32);
-                out.push(d * (scales[sc_pass_base + is + 4] as i8) as f32 * q3 as f32);
-                out.push(d * (scales[sc_pass_base + is + 6] as i8) as f32 * q4 as f32);
+                y[l] = d * (scales[sc_pass_base + is] as i8) as f32 * q1 as f32;
+                y[l + 32] = d * (scales[sc_pass_base + is + 2] as i8) as f32 * q2 as f32;
+                y[l + 64] = d * (scales[sc_pass_base + is + 4] as i8) as f32 * q3 as f32;
+                y[l + 96] = d * (scales[sc_pass_base + is + 6] as i8) as f32 * q4 as f32;
             }
         }
+        out.extend_from_slice(&decoded);
     }
     Ok(out)
 }
@@ -448,15 +455,46 @@ mod tests {
 
     #[test]
     fn q6_k_handmade_minus_32() {
-        // d=1, scales=1, ql=0, qh=0 → (0-32)*1 = -32.
+        // ggml layout: ql(128) + qh(64) + scales(16) + d(2). ql/qh=0 → (0-32)*1 = -32.
         let mut block = vec![0u8; Q6_K_BYTES];
-        block[0..2].copy_from_slice(&f16_one());
-        for b in &mut block[2..18] {
+        for b in &mut block[192..208] {
             *b = 1;
         }
+        block[208..210].copy_from_slice(&f16_one());
         let out = dequantize_q6_k(&block, &[256]).expect("q6_k");
         assert_eq!(out.len(), 256);
         assert!(out.iter().all(|&v| v == -32.0), "got {:?}", &out[..8]);
+    }
+
+    #[test]
+    fn q5_k_ggml_group_order() {
+        // Only ql[0] low nibble is 1. ggml emits y[0]=1, y[32]=0 — not interleaved.
+        let mut block = vec![0u8; Q5_K_BYTES];
+        block[0..2].copy_from_slice(&f16_one());
+        for b in &mut block[4..16] {
+            *b = 0x01;
+        }
+        block[48] = 0x01;
+        let out = dequantize_q5_k(&block, &[256]).expect("q5_k order");
+        assert_eq!(out[0], 1.0);
+        assert_eq!(out[32], 0.0);
+        assert!(out[1..32].iter().all(|&v| v == 0.0));
+    }
+
+    #[test]
+    fn q6_k_ggml_group_order() {
+        // ql[0]=1 → q1=-31 at y[0]; y[32]/y[64]/y[96] stay -32.
+        let mut block = vec![0u8; Q6_K_BYTES];
+        block[0] = 1;
+        for b in &mut block[192..208] {
+            *b = 1;
+        }
+        block[208..210].copy_from_slice(&f16_one());
+        let out = dequantize_q6_k(&block, &[256]).expect("q6_k order");
+        assert_eq!(out[0], -31.0);
+        assert_eq!(out[32], -32.0);
+        assert_eq!(out[64], -32.0);
+        assert_eq!(out[96], -32.0);
     }
 
     #[test]

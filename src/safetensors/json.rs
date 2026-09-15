@@ -137,11 +137,15 @@ pub(super) fn parse_string_array(encoded: &str) -> Option<Vec<String>> {
         .collect()
 }
 
+/// Cap nested `{` / `[` so a tiny header of nested brackets cannot overflow the stack.
+const MAX_JSON_DEPTH: usize = 32;
+
 fn parse_json(input: &str, path: &str) -> Result<JsonValue> {
     let mut parser = JsonParser {
         input,
         pos: 0,
         path,
+        depth: 0,
     };
     let value = parser.parse_value()?;
     parser.skip_whitespace();
@@ -155,6 +159,7 @@ struct JsonParser<'a> {
     input: &'a str,
     pos: usize,
     path: &'a str,
+    depth: usize,
 }
 
 impl<'a> JsonParser<'a> {
@@ -197,13 +202,31 @@ impl<'a> JsonParser<'a> {
         Ok(())
     }
 
+    fn enter_nested(&mut self) -> Result<()> {
+        if self.depth >= MAX_JSON_DEPTH {
+            return Err(self.error("JSON nesting exceeds maximum depth"));
+        }
+        self.depth += 1;
+        Ok(())
+    }
+
     fn parse_value(&mut self) -> Result<JsonValue> {
         self.skip_whitespace();
         let c = self.peek().ok_or_else(|| self.error("unexpected EOF"))?;
         match c {
             '"' => self.parse_string().map(JsonValue::String),
-            '{' => self.parse_object(),
-            '[' => self.parse_array(),
+            '{' => {
+                self.enter_nested()?;
+                let value = self.parse_object()?;
+                self.depth -= 1;
+                Ok(value)
+            }
+            '[' => {
+                self.enter_nested()?;
+                let value = self.parse_array()?;
+                self.depth -= 1;
+                Ok(value)
+            }
             't' | 'f' => self.parse_bool(),
             'n' => self.parse_null(),
             '-' | '0'..='9' => self.parse_number(),
@@ -584,5 +607,15 @@ mod tests {
     fn compact_string_array_matches_corinth_encoding() {
         let value = JsonValue::Array(vec![JsonValue::String("unused.safetensors".into())]);
         assert_eq!(encode_compact(&value), r#"["unused.safetensors"]"#);
+    }
+
+    #[test]
+    fn rejects_excessive_nesting() {
+        let json = "[".repeat(MAX_JSON_DEPTH + 1) + &"]".repeat(MAX_JSON_DEPTH + 1);
+        let err = parse_json(&json, "test").unwrap_err();
+        assert!(
+            err.to_string().contains("maximum depth"),
+            "unexpected error: {err}"
+        );
     }
 }
