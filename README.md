@@ -32,6 +32,8 @@ The off-by-default `safetensors` feature owns reusable **metadata-side** support
 - Safetensors header deserialization;
 - deterministic tensor manifests;
 - single-file, Hugging Face shard-index, and directory layouts;
+- checkpoint-relative shard resolution with path-escape rejection;
+- unique tensor ownership and missing-shard diagnostics;
 - tensor name/dtype/shape/offset/shard metadata;
 - MoE router/expert candidate discovery and grouping;
 - metadata-only layout-family inference where it is reusable outside Corinth.
@@ -233,7 +235,8 @@ Safetensors surface (`--features safetensors`) includes:
 - `SafetensorsManifest`, `SafetensorsCheckpointSource`, `SafetensorsTensorRecord`;
 - `classify_tensor`, `discover_candidates`;
 - `SafetensorsCandidateSummary`, `SafetensorsRouterCandidate`, `SafetensorsExpertGroup`;
-- `dtype_size_bytes`.
+- `dtype_size_bytes`;
+- `ParserError::DuplicateTensorOwnership` and `ParserError::MissingShard` for shard-index diagnostics.
 
 ## Ecosystem / promotion model
 
