@@ -16,7 +16,11 @@ pub const VT_STRING: u32 = 8;
 pub const GGML_F32: u32 = 0;
 pub const GGML_Q8_0: u32 = 8;
 pub const GGML_Q4_K: u32 = 12;
+pub const GGML_Q5_K: u32 = 13;
+pub const GGML_Q6_K: u32 = 14;
 pub const GGML_IQ3_S: u32 = 21;
+/// Internal 111-byte IQ3_M block id (not GGUF wire type 31).
+pub const GGML_IQ3_M_BLOCK: u32 = 0x4949_334D;
 
 pub enum KvValue {
     U32(u32),
