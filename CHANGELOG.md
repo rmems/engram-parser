@@ -13,13 +13,17 @@ All notable changes to this project are documented in this file.
   crates: `[dependencies]` stays empty for this feature; the upstream
   `safetensors` crate, `serde_json`, and `corinth-canal` are not used. Does
   not include payload mmap or Hugging Face `config.json` policy.
-- **Optional `mmap` feature (#45 option 1):** `load_gguf_mmap` maps a GGUF with
-  `memmap2` 0.9.11 instead of `fs::read` into a `Vec<u8>`. Default builds stay
-  zero-dep (`default = []`). Packed CPU dequant for **Q8_0**, **Q5_K**,
-  **Q6_K**, and the internal **IQ3_M block** layout
+- **Optional `mmap` feature (#45 option 1 / RM-367):** `load_gguf_mmap` maps a
+  GGUF with `memmap2` 0.9.11 instead of `fs::read` into a `Vec<u8>`. Default
+  builds stay zero-dep (`default = []`). Packed CPU dequant for **Q8_0**,
+  **Q5_K**, **Q6_K**, and the internal **IQ3_M block** layout
   (`GGML_TYPE_IQ3_M_BLOCK = 0x4949334D`, 111 bytes / 256 values). Wire type
   **31** remains historical **Q4_0_4_4** (`DType::Other(31)`). CUDA
-  host-register is still out of scope.
+  host-register is still out of scope. `GgufLayoutMmap::directory_matches`
+  compares the full tensor directory (not just count/architecture). CI covers
+  mmap↔owned packed dequant, a tensor past the first OS page, and a **sparse
+  2 GiB** mapping that never calls `fs::read`. Real on-disk multi-GB pilots
+  remain `#[ignore]` behind `ENGRAM_GGUF`.
 
 ### Changed
 

@@ -269,7 +269,7 @@ cargo test --all-features
 cargo llvm-cov --all-targets --all-features --locked --lcov --output-path lcov.info
 ```
 
-`load_gguf` reads and retains the complete file. For multi-GB checkpoints use `cargo test --features mmap` / `load_gguf_mmap`. Real GGUF pilots require local files (`ENGRAM_GGUF`) and are `#[ignore]` so CI stays green without them. CUDA host-register is still out of scope.
+`load_gguf` reads and retains the complete file. For multi-GB checkpoints use `cargo test --features mmap` / `load_gguf_mmap`. CI mmap tests include packed Q8_0/Q5_K/Q6_K/IQ3_M dequant from the mapping and a sparse 2 GiB file that is mapped without `fs::read`. Real on-disk GGUF pilots still require local files (`ENGRAM_GGUF`) and are `#[ignore]`. CUDA host-register is still out of scope.
 
 ```bash
 ENGRAM_GGUF=~/.models/gguf/.../model.gguf ENGRAM_EXPECT_MOE=1 \
