@@ -201,10 +201,24 @@ pub fn os_page_size() -> usize {
 
 #[cfg(unix)]
 fn unix_page_size() -> Option<usize> {
-    // POSIX `_SC_PAGESIZE`: Linux/Android 30, other unix 29 (Darwin/BSD).
+    // POSIX `_SC_PAGESIZE` numeric ids (no `libc` crate).
     #[cfg(any(target_os = "linux", target_os = "android"))]
     const SC_PAGESIZE: i32 = 30;
-    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    const SC_PAGESIZE: i32 = 29;
+    #[cfg(target_os = "freebsd")]
+    const SC_PAGESIZE: i32 = 47;
+    #[cfg(any(target_os = "netbsd", target_os = "openbsd"))]
+    const SC_PAGESIZE: i32 = 28;
+    #[cfg(not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    )))]
     const SC_PAGESIZE: i32 = 29;
 
     unsafe extern "C" {

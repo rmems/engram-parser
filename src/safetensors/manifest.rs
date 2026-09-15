@@ -500,6 +500,7 @@ pub(super) fn inspect_index_shards(
     }
 
     metadata.insert("index_tensor_count".into(), index_tensor_count.to_string());
+    metadata.remove(INDEX_UNREFERENCED_SHARDS_KEY);
     if let Some(encoded) = unreferenced_shards_json {
         metadata.insert(INDEX_UNREFERENCED_SHARDS_KEY.into(), encoded);
     }
