@@ -16,6 +16,7 @@ Today, `engram-parser` ships GGUF v3 deserialization, per-expert raw-weight extr
 ### Shipped now — GGUF
 
 - Parses GGUF v3 magic, header, KV metadata, and tensor directory into an in-memory [`GgufLayout`].
+- Applies a documented [`ParseLimits`] budget (KV/tensor counts, string sizes, array work, tensor rank, metadata bytes) before allocation or loops proportional to file-declared values. Defaults are generous; trusted callers can override via `load_gguf_with_limits` / `parse_bytes_with_limits` without weakening the default path.
 - Enumerates MoE experts discovered in a checkpoint.
 - Extracts the raw byte buffers for one expert's `gate`, `up`, and `down` projections.
 - Supports stacked (`blk.{B}.ffn_{role}_exps.weight`) and per-expert (`blk.{B}.ffn_{role}.{E}.weight`) conventions.
@@ -218,13 +219,13 @@ Numeric helpers: `dequantize_f16`, `dequantize_q8_0`, `dequantize_q5_k`, `dequan
 
 Current GGUF surface includes:
 
-- `load_gguf`, `parse_bytes`;
-- `#[cfg(feature = "mmap")] load_gguf_mmap` → `GgufLayoutMmap` (page-aligned tensor slices via `tensor_page_aligned_bytes`);
-- `GgufLayout`, `GgufMetadata`, `Tensor`, `DType`;
+- `load_gguf`, `parse_bytes` (and `*_with_limits` for an explicit [`ParseLimits`] policy);
+- `#[cfg(feature = "mmap")] load_gguf_mmap` / `load_gguf_mmap_with_limits` → `GgufLayoutMmap` (page-aligned tensor slices via `tensor_page_aligned_bytes`);
+- `GgufLayout`, `GgufMetadata`, `Tensor`, `DType`, `ParseLimits`;
 - `dequantize_f16` (on `Tensor`), `dequantize_q8_0`, `dequantize_q5_k`, `dequantize_q6_k`, `dequantize_iq3_m`;
 - `extract_expert`, `list_experts`;
 - `MoeExpertWeights`, `RawTensor`;
-- `ParserError`, `Result`;
+- `ParserError`, `ParseLimitKind`, `HostSizeField`, `Result`;
 - public `GGML_TYPE_*` / `GGUF_VALUE_TYPE_*` constants and the `ggml_type_label` label function.
 
 Safetensors surface (`--features safetensors`) includes:

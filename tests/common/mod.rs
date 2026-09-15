@@ -9,8 +9,10 @@ pub const GGUF_VERSION: u32 = 3;
 pub const ALIGNMENT: u32 = 32;
 
 // Value types.
+pub const VT_UINT8: u32 = 0;
 pub const VT_UINT32: u32 = 4;
 pub const VT_STRING: u32 = 8;
+pub const VT_ARRAY: u32 = 9;
 
 // Dtypes (GGUF wire type ids).
 pub const GGML_F32: u32 = 0;
@@ -54,6 +56,33 @@ pub fn push_kv_string(out: &mut Vec<u8>, key: &str, v: &str) {
     push_string(out, key);
     push_u32(out, VT_STRING);
     push_string(out, v);
+}
+
+pub fn gguf_header(tensor_count: u64, kv_count: u64) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(&GGUF_MAGIC);
+    push_u32(&mut out, GGUF_VERSION);
+    push_u64(&mut out, tensor_count);
+    push_u64(&mut out, kv_count);
+    out
+}
+
+pub fn push_array_uint8_header(out: &mut Vec<u8>, key: &str, len: u64) {
+    push_string(out, key);
+    push_u32(out, VT_ARRAY);
+    push_u32(out, VT_UINT8);
+    push_u64(out, len);
+}
+
+pub fn push_nested_array_payload(out: &mut Vec<u8>, depth: usize) {
+    for level in 0..depth {
+        if level == depth - 1 {
+            push_u32(out, VT_UINT8);
+        } else {
+            push_u32(out, VT_ARRAY);
+        }
+        push_u64(out, if level == depth - 1 { 0 } else { 1 });
+    }
 }
 
 pub fn build_gguf(kv: &[(&str, KvValue)], tensors: &[TensorSpec]) -> Vec<u8> {
