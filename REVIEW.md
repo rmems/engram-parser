@@ -3,15 +3,17 @@
 Local commands that must pass before merge or PR for this crate.
 Aligned with `.github/workflows/ci.yml` and the README Development section.
 
-**Charter:** pure-Rust, **zero-dependency** checkpoint parse + MoE raw expert
-extract — GGUF v3 today, plus safetensors **headers** behind an off-by-default
-`safetensors` feature once #10 lands (manifest + candidate discovery only, no
-payload). **No CUDA, dequant, mmap, or GGML compute** in this repo. GGUF’s
-on-wire `ggml_type` codes are metadata only (labels + packed sizes).
+**Charter:** pure-Rust, **zero-dependency by default** checkpoint parse + MoE
+raw expert extract — GGUF v3 plus packed K-quant dequant (Q8_0 / Q5_K / Q6_K /
+IQ3_M block). Optional `mmap` feature (#45) adds `memmap2` (`load_gguf_mmap`).
+Safetensors **headers** ship behind an off-by-default `safetensors` feature
+(#10: manifest + candidate discovery only, no payload mmap, no extra crates).
+**No CUDA or GGML compute** in this repo. GGUF on-wire `ggml_type` codes are
+labels + packed sizes; wire 31 is `Q4_0_4_4`, not IQ3_M.
 
 | Repo | Role |
 |------|------|
-| **engram-parser** (this) | GGUF parse + inventory + raw expert bytes; safetensors header/manifest/discovery (feature-gated, planned — #10) |
+| **engram-parser** (this) | GGUF parse + inventory + raw expert bytes + optional mmap/K-quant dequant; safetensors header/manifest/discovery (feature-gated — #10) |
 | **myelin-accelerator** | Production CUDA kernels / FFI (`~/Limen-Neural/myelin-accelerator`) |
 | **blackwell-kernel-lab** | Scratch GPU experiments / real-model pipelines (`~/rmems/blackwell-kernel-lab`) |
 

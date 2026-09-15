@@ -9,7 +9,7 @@
 use std::fmt;
 use std::io;
 
-/// Unified error type for GGUF parsing and MoE weight extraction.
+/// Unified error type for checkpoint parsing and MoE weight extraction.
 #[derive(Debug)]
 pub enum ParserError {
     /// The underlying file could not be read.
@@ -19,8 +19,8 @@ pub enum ParserError {
         /// Upstream `std::io::Error`.
         source: io::Error,
     },
-    /// The file is not a valid GGUF checkpoint (bad magic, unsupported
-    /// version, unknown value type, …).
+    /// The file is not a valid checkpoint (bad magic, unsupported
+    /// version, unknown value type, unexpected Safetensors layout, …).
     UnsupportedFormat {
         /// Path of the offending checkpoint.
         path: String,
@@ -59,13 +59,13 @@ impl fmt::Display for ParserError {
         match self {
             Self::Io { path, source } => write!(f, "I/O error reading '{path}': {source}"),
             Self::UnsupportedFormat { path, reason } => {
-                write!(f, "unsupported GGUF format in '{path}': {reason}")
+                write!(f, "unsupported format in '{path}': {reason}")
             }
             Self::MissingTensor { name, path } => {
                 write!(f, "missing tensor '{name}' in '{path}'")
             }
             Self::InvalidLayout { path, reason } => {
-                write!(f, "invalid GGUF layout in '{path}': {reason}")
+                write!(f, "invalid layout in '{path}': {reason}")
             }
             Self::ExpertOutOfRange {
                 block,

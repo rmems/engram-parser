@@ -183,24 +183,7 @@ pub struct GgufLayout {
 impl GgufLayout {
     /// Return a borrowed slice of the raw tensor payload bytes.
     pub fn tensor_bytes<'a>(&'a self, tensor: &Tensor) -> Result<&'a [u8]> {
-        let start = tensor.absolute_offset;
-        let end = start.checked_add(tensor.byte_len).ok_or_else(|| {
-            invalid_layout(
-                &self.path,
-                format!("tensor '{}' byte-length overflow", tensor.name),
-            )
-        })?;
-        if end > self.bytes.len() {
-            return Err(invalid_layout(
-                &self.path,
-                format!(
-                    "tensor '{}' extends beyond mapped file ({end} > {})",
-                    tensor.name,
-                    self.bytes.len()
-                ),
-            ));
-        }
-        Ok(&self.bytes[start..end])
+        tensor_payload_bytes(&self.bytes, &self.path, tensor)
     }
 
     /// Lookup a tensor by exact name.
@@ -224,6 +207,32 @@ impl GgufLayout {
         matches.sort_unstable_by_key(|t| tensor_block_sort_key(&t.name));
         matches
     }
+}
+
+/// Bounds-checked tensor payload slice from any byte source (owned buffer or mmap).
+pub(crate) fn tensor_payload_bytes<'a>(
+    bytes: &'a [u8],
+    path: &str,
+    tensor: &Tensor,
+) -> Result<&'a [u8]> {
+    let start = tensor.absolute_offset;
+    let end = start.checked_add(tensor.byte_len).ok_or_else(|| {
+        invalid_layout(
+            path,
+            format!("tensor '{}' byte-length overflow", tensor.name),
+        )
+    })?;
+    if end > bytes.len() {
+        return Err(invalid_layout(
+            path,
+            format!(
+                "tensor '{}' extends beyond mapped file ({end} > {})",
+                tensor.name,
+                bytes.len()
+            ),
+        ));
+    }
+    Ok(&bytes[start..end])
 }
 
 struct LayoutHeader {
