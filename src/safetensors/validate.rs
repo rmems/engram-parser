@@ -175,7 +175,10 @@ pub(super) fn reject_output_checkpoint_conflict(
 fn directory_safetensors_paths(dir: &Path) -> Result<BTreeSet<PathBuf>> {
     let mut paths = BTreeSet::new();
     let entries = fs::read_dir(dir).map_err(|e| {
-        model_load(dir, format!("read checkpoint directory for overwrite guard: {e}"))
+        model_load(
+            dir,
+            format!("read checkpoint directory for overwrite guard: {e}"),
+        )
     })?;
     for entry in entries {
         let entry =
