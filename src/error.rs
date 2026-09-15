@@ -52,6 +52,22 @@ pub enum ParserError {
         /// Number of experts actually available.
         available: usize,
     },
+    /// A tensor name is claimed by more than one Safetensors shard.
+    DuplicateTensorOwnership {
+        /// Tensor name with conflicting owners.
+        name: String,
+        /// Checkpoint-relative shard paths that declare the tensor, sorted.
+        shards: Vec<String>,
+        /// Path of the checkpoint or index being inspected.
+        path: String,
+    },
+    /// An index-referenced Safetensors shard is missing on disk.
+    MissingShard {
+        /// Shard path as declared in the index (checkpoint-relative).
+        shard: String,
+        /// Path of the index or checkpoint that referenced the shard.
+        path: String,
+    },
 }
 
 impl fmt::Display for ParserError {
@@ -75,6 +91,16 @@ impl fmt::Display for ParserError {
                 f,
                 "expert index out of range: block={block}, expert={expert}, available={available}"
             ),
+            Self::DuplicateTensorOwnership { name, shards, path } => {
+                write!(
+                    f,
+                    "duplicate tensor ownership for '{name}' across shards {} in '{path}'",
+                    shards.join(", ")
+                )
+            }
+            Self::MissingShard { shard, path } => {
+                write!(f, "missing shard '{shard}' referenced by '{path}'")
+            }
         }
     }
 }
@@ -83,7 +109,12 @@ impl std::error::Error for ParserError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io { source, .. } => Some(source),
-            _ => None,
+            Self::UnsupportedFormat { .. }
+            | Self::MissingTensor { .. }
+            | Self::InvalidLayout { .. }
+            | Self::ExpertOutOfRange { .. }
+            | Self::DuplicateTensorOwnership { .. }
+            | Self::MissingShard { .. } => None,
         }
     }
 }
