@@ -4,21 +4,40 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Safetensors feature (`#10`):** off-by-default `safetensors` cargo feature
+  for header-only inspection, deterministic manifests, single-file / Hugging
+  Face shard-index / directory layouts, and MoE router/expert candidate
+  discovery. Public API lives in `engram_parser::safetensors`. Zero extra
+  crates: `[dependencies]` stays empty for this feature; the upstream
+  `safetensors` crate, `serde_json`, and `corinth-canal` are not used. Does
+  not include payload mmap or Hugging Face `config.json` policy.
+- **Optional `mmap` feature (#45 option 1):** `load_gguf_mmap` maps a GGUF with
+  `memmap2` 0.9.11 instead of `fs::read` into a `Vec<u8>`. Default builds stay
+  zero-dep (`default = []`). Packed CPU dequant for **Q8_0**, **Q5_K**,
+  **Q6_K**, and the internal **IQ3_M block** layout
+  (`GGML_TYPE_IQ3_M_BLOCK = 0x4949334D`, 111 bytes / 256 values). Wire type
+  **31** remains historical **Q4_0_4_4** (`DType::Other(31)`). CUDA
+  host-register is still out of scope.
+
 ### Changed
 
-- **Charter reversal (#10):** safetensors support will ship **inside this
+- **Charter reversal (#10):** safetensors support ships **inside this
   crate** behind an off-by-default `safetensors` cargo feature, not in a
   separate `safetensors-parser` crate. This supersedes the "engram-parser
   charter remains GGUF-only" language previously carried by `README.md`,
   `REVIEW.md`, corinth-canal `docs/MODULE_STATUS.md`, and cortex-tensor#9.
-  The zero-dependency guarantee is unchanged: `[dependencies]` stays empty in
-  every feature combination. The initial Safetensors extraction is a one-way
-  copy from `rmems/corinth-canal` inspiration with no dependency in either
-  direction; it is not a permanent duplication policy. Once this crate meets
-  the relevant adoption requirements, a future Corinth dependency may replace
+  Default builds keep `[dependencies]` empty. The `mmap` feature is the
+  only optional dependency (`memmap2`); the `safetensors` feature stays
+  zero-dep. The initial Safetensors extraction is a one-way copy from
+  `rmems/corinth-canal` inspiration with no dependency in either direction;
+  it is not a permanent duplication policy. Once this crate meets the
+  relevant adoption requirements, a future Corinth dependency may replace
   the corresponding local copy. (GGUF is the opposite case:
   corinth-canal#115 already plans a real `engram-parser` dependency, gated on
-  #45.) No code has landed yet; this entry records the decision only.
+  #45.) Safetensors is now **code** behind the feature, not a decision-only
+  note.
 
 ## [0.2.0] - 2026-08-02
 

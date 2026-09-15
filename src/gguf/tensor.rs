@@ -11,8 +11,8 @@
 //!
 //! GGUF stores each tensor’s dtype as a `ggml_type` `u32`. The
 //! `GGML_TYPE_*` constants mirror that table (same numbers as `ggml.h`)
-//! so we can label types and compute **packed byte lengths**. This module
-//! does **not** implement dequantization or any GGML compute path.
+//! so we can label types and compute **packed byte lengths**. Packed
+//! dequant for Q8_0/Q5_K/Q6_K/IQ3_M lives in [`super::dequant`].
 //! [`ggml_type_label`] maps any `u32` code to a short diagnostic string.
 
 use crate::error::{ParserError, Result};
@@ -86,6 +86,12 @@ pub const GGML_TYPE_BF16: u32 = 30;
 /// mapping (`GGML_TYPE_Q4_0_4_4 = 31`); its 111-byte IQ3_M path is an
 /// **internal** non-wire id only.
 pub const GGML_TYPE_Q4_0_4_4: u32 = 31;
+/// Internal id for the 111-byte IQ3_M *block layout* decoder only.
+///
+/// Not a GGUF wire type: HuggingFace “IQ3_M” is a mixed-quant *preset*, not
+/// type id 31. Production GGUFs never emit this code; synthetic fixtures and
+/// [`crate::dequantize_iq3_m`] use it. ASCII `'II3M'`.
+pub const GGML_TYPE_IQ3_M_BLOCK: u32 = 0x4949_334D;
 
 // ---------------------------------------------------------------------------
 // Human-readable label helper.
@@ -137,6 +143,7 @@ pub fn ggml_type_label(ggml_type: u32) -> &'static str {
         GGML_TYPE_IQ1_M => "IQ1_M",
         GGML_TYPE_BF16 => "BF16",
         GGML_TYPE_Q4_0_4_4 => "Q4_0_4_4",
+        GGML_TYPE_IQ3_M_BLOCK => "IQ3_M_BLOCK",
         _ => "unknown",
     }
 }
@@ -215,6 +222,9 @@ pub enum DType {
     I32,
     /// 64-bit signed integer (`GGML_TYPE_I64 = 27`).
     I64,
+    /// Internal 111-byte IQ3_M block layout ([`GGML_TYPE_IQ3_M_BLOCK`]).
+    /// Not GGUF wire type 31.
+    IQ3_M_BLOCK,
     /// Any other GGML dtype not explicitly enumerated above. The raw
     /// `u32` code is preserved so callers can dispatch on it.
     Other(u32),
@@ -247,6 +257,7 @@ impl DType {
             GGML_TYPE_IQ2_S => Self::IQ2_S,
             GGML_TYPE_IQ4_XS => Self::IQ4_XS,
             GGML_TYPE_IQ1_M => Self::IQ1_M,
+            GGML_TYPE_IQ3_M_BLOCK => Self::IQ3_M_BLOCK,
             // Wire 31 is historical Q4_0_4_4: fall through to Other(31) via `other`.
             GGML_TYPE_BF16 => Self::BF16,
             GGML_TYPE_F64 => Self::F64,
@@ -284,6 +295,7 @@ impl DType {
             Self::IQ2_S => GGML_TYPE_IQ2_S,
             Self::IQ4_XS => GGML_TYPE_IQ4_XS,
             Self::IQ1_M => GGML_TYPE_IQ1_M,
+            Self::IQ3_M_BLOCK => GGML_TYPE_IQ3_M_BLOCK,
             Self::BF16 => GGML_TYPE_BF16,
             Self::F64 => GGML_TYPE_F64,
             Self::I8 => GGML_TYPE_I8,
@@ -327,7 +339,8 @@ impl DType {
             | Self::IQ3_S
             | Self::IQ1_S
             | Self::IQ1_M
-            | Self::IQ4_XS => Some(256),
+            | Self::IQ4_XS
+            | Self::IQ3_M_BLOCK => Some(256),
             Self::F32
             | Self::F16
             | Self::BF16
@@ -392,6 +405,8 @@ impl DType {
             Self::IQ1_M => blocked_byte_len(n_elements, 256, 56),
             Self::IQ4_NL => blocked_byte_len(n_elements, 32, 18),
             Self::IQ4_XS => blocked_byte_len(n_elements, 256, 136),
+            // Internal IQ3_M block layout (not wire 31): 111 bytes / 256 values.
+            Self::IQ3_M_BLOCK => blocked_byte_len(n_elements, 256, 111),
             // Opaque / unknown (includes wire 31 Q4_0_4_4).
             Self::Other(_) => None,
         }
@@ -601,6 +616,7 @@ mod tests {
             DType::IQ2_S,
             DType::IQ4_XS,
             DType::IQ1_M,
+            DType::IQ3_M_BLOCK,
             DType::BF16,
             DType::F64,
             DType::I8,
@@ -640,6 +656,7 @@ mod tests {
             (GGML_TYPE_Q6_K, "Q6_K"),
             (GGML_TYPE_IQ3_S, "IQ3_S"),
             (GGML_TYPE_Q4_0_4_4, "Q4_0_4_4"),
+            (GGML_TYPE_IQ3_M_BLOCK, "IQ3_M_BLOCK"),
             (GGML_TYPE_BF16, "BF16"),
             (GGML_TYPE_F64, "F64"),
             (GGML_TYPE_I8, "I8"),
@@ -764,6 +781,9 @@ mod tests {
             (DType::IQ4_NL, 64, Some(36)),
             (DType::IQ4_NL, 33, None),
             (DType::IQ4_XS, 256, Some(136)),
+            (DType::IQ3_M_BLOCK, 256, Some(111)),
+            (DType::IQ3_M_BLOCK, 512, Some(222)),
+            (DType::IQ3_M_BLOCK, 100, None),
         ];
         for (dt, n, expected) in cases {
             assert_eq!(dt.byte_len_for_elements(n), expected, "{dt:?} x {n}");
@@ -779,6 +799,7 @@ mod tests {
             (DType::IQ3_S, true),
             (DType::IQ2_XXS, true),
             (DType::IQ4_NL, true),
+            (DType::IQ3_M_BLOCK, true),
             (DType::Other(31), false),
             (DType::Other(99), false),
         ];
@@ -820,6 +841,7 @@ mod tests {
             (GGML_TYPE_IQ1_M, 29),
             (GGML_TYPE_BF16, 30),
             (GGML_TYPE_Q4_0_4_4, 31),
+            (GGML_TYPE_IQ3_M_BLOCK, 0x4949_334D),
         ];
         for (constant, expected) in cases {
             assert_eq!(constant, expected, "constant value mismatch");
@@ -838,6 +860,14 @@ mod tests {
                 && dt.byte_len_for_elements(256).is_none()
                 && !dt.has_known_byte_layout(),
             "wire 31 semantics: label={label}, dt={dt:?}"
+        );
+        let iq3 = DType::from_ggml_type(GGML_TYPE_IQ3_M_BLOCK);
+        assert!(
+            iq3 == DType::IQ3_M_BLOCK
+                && ggml_type_label(GGML_TYPE_IQ3_M_BLOCK) == "IQ3_M_BLOCK"
+                && iq3.byte_len_for_elements(256) == Some(111)
+                && iq3.has_known_byte_layout(),
+            "IQ3_M_BLOCK must stay distinct from wire 31: {iq3:?}"
         );
     }
 

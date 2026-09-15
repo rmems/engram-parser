@@ -59,6 +59,8 @@ fn moe_sample_count() -> usize {
     moe_sample_count_from(env::var(ENV_MOE_SAMPLES).ok().as_deref())
 }
 
+#[cfg(feature = "mmap")]
+use engram_parser::load_gguf_mmap;
 use engram_parser::{GgufLayout, MoeExpertWeights, extract_expert, list_experts, load_gguf};
 
 /// Assert that an extracted expert has at least one role tensor and that each
@@ -408,4 +410,37 @@ fn real_gguf_helpers_document_env() {
         pilot_gguf_paths_from(None, Some(dir.to_str().unwrap()), Some("5")),
         vec![gf]
     );
+}
+
+#[cfg(feature = "mmap")]
+#[test]
+#[ignore = "pilot: set ENGRAM_GGUF or ENGRAM_MODEL_DIR; not run in CI"]
+fn real_gguf_mmap_parity() {
+    let paths = require_pilots();
+    for path in paths {
+        let owned = load_gguf(&path).unwrap_or_else(|e| {
+            panic!("load_gguf({}) failed: {e}", path.display());
+        });
+        let mapped = load_gguf_mmap(&path).unwrap_or_else(|e| {
+            panic!("load_gguf_mmap({}) failed: {e}", path.display());
+        });
+        assert!(
+            mapped.directory_matches(&owned),
+            "{}: mmap directory mismatch vs owned load",
+            path.display()
+        );
+        for (name, tensor) in &owned.tensors {
+            let mapped_t = mapped.tensor(name).unwrap_or_else(|e| {
+                panic!("{} missing mapped tensor {name}: {e}", path.display());
+            });
+            let owned_bytes = owned.tensor_bytes(tensor).expect("owned payload");
+            let mapped_bytes = mapped.tensor_bytes(mapped_t).expect("mmap payload");
+            assert_eq!(
+                owned_bytes,
+                mapped_bytes,
+                "{} tensor {name} payload mismatch",
+                path.display()
+            );
+        }
+    }
 }

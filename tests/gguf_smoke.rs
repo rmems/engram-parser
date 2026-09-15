@@ -232,7 +232,7 @@ fn rejects_bad_magic() {
     bytes.extend_from_slice(&0u64.to_le_bytes());
     let err = parse_bytes(bytes, "mem://bad-magic".into()).unwrap_err();
     let msg = format!("{err}");
-    assert!(msg.contains("unsupported GGUF format"), "got: {msg}");
+    assert!(msg.contains("unsupported format"), "got: {msg}");
 }
 
 #[test]
@@ -480,7 +480,7 @@ fn rejects_unsupported_gguf_version() {
     let err = parse_bytes(out, "mem://v2".into()).unwrap_err();
     let msg = err.to_string();
     assert!(
-        msg.contains("unsupported GGUF version") || msg.contains("unsupported GGUF format"),
+        msg.contains("unsupported GGUF version") || msg.contains("unsupported format"),
         "got: {msg}"
     );
 }

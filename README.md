@@ -3,11 +3,13 @@
 [![CI](https://github.com/rmems/engram-parser/actions/workflows/ci.yml/badge.svg)](https://github.com/rmems/engram-parser/actions/workflows/ci.yml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
 
-Pure-Rust, **zero-dependency checkpoint metadata parsing and Mixture-of-Experts extraction**.
+Pure-Rust **checkpoint metadata parsing and Mixture-of-Experts extraction**.
 
-Today, `engram-parser` ships GGUF v3 deserialization and per-expert raw-weight extraction. Safetensors **header/manifest/MoE-discovery support is the next parser surface** and is being promoted from the `corinth-canal` reference implementation behind a planned, off-by-default `safetensors` Cargo feature.
+Today, `engram-parser` ships GGUF v3 deserialization, per-expert raw-weight extraction, packed K-quant dequant (Q8_0 / Q5_K / Q6_K / IQ3_M block layout), and an optional `mmap` reader. Safetensors **header/manifest/MoE-discovery support ships behind the off-by-default `safetensors` Cargo feature**, promoted from the `corinth-canal` reference implementation.
 
-> **Safetensors status:** planned / in flight, **not shipped yet**. Until the port tracked in [#10](https://github.com/rmems/engram-parser/issues/10) lands, `cargo build --features safetensors` will fail because the feature does not yet exist.
+> **Safetensors status:** shipped behind `--features safetensors`. Default builds remain GGUF-only. The feature is header/manifest/discovery only — no payload mmap and no Hugging Face `config.json` policy. Tracked in [#10](https://github.com/rmems/engram-parser/issues/10).
+>
+> **mmap / K-quant status:** shipped. Default `load_gguf` still uses `fs::read`. Enable `--features mmap` for `load_gguf_mmap` (`memmap2`). Packed dequant for Q8_0 / Q5_K / Q6_K / IQ3_M is on the default crate. Tracked in [#45](https://github.com/rmems/engram-parser/issues/45). CUDA host-register remains out of scope.
 
 ## What it does
 
@@ -18,10 +20,14 @@ Today, `engram-parser` ships GGUF v3 deserialization and per-expert raw-weight e
 - Extracts the raw byte buffers for one expert's `gate`, `up`, and `down` projections.
 - Supports stacked (`blk.{B}.ffn_{role}_exps.weight`) and per-expert (`blk.{B}.ffn_{role}.{E}.weight`) conventions.
 - Models packed GGUF dtype sizes without pulling in a numerical runtime.
+- Packed dequant to `f32` for **Q8_0**, **Q5_K**, **Q6_K**, and the internal **IQ3_M block** layout (`GGML_TYPE_IQ3_M_BLOCK = 0x4949334D`). Existing `dequantize_f16` is unchanged.
+- Optional **`mmap` feature** (`memmap2`): `load_gguf_mmap` maps the file instead of `fs::read` into a `Vec<u8>`. Default builds still read the whole file and keep `[dependencies]` empty. CUDA host-register remains out of scope (myelin-accelerator).
 
-### Planned / in flight — Safetensors
+Tracking for mmap + K-quant: [engram-parser#45](https://github.com/rmems/engram-parser/issues/45) (option 1), [corinth-canal#144](https://github.com/rmems/corinth-canal/issues/144).
 
-The `safetensors` feature will own reusable **metadata-side** support for:
+### Shipped behind feature — Safetensors
+
+The off-by-default `safetensors` feature owns reusable **metadata-side** support for:
 
 - Safetensors header deserialization;
 - deterministic tensor manifests;
@@ -30,14 +36,14 @@ The `safetensors` feature will own reusable **metadata-side** support for:
 - MoE router/expert candidate discovery and grouping;
 - metadata-only layout-family inference where it is reusable outside Corinth.
 
-This means **engram-parser will support the Safetensors format itself**. It does **not** mean adding the upstream Rust `safetensors` crate as a dependency. The zero-dependency charter remains in force.
+This means **engram-parser supports the Safetensors format itself**. It does **not** mean adding the upstream Rust `safetensors` crate as a dependency. The `safetensors` feature stays zero-dep: no `serde_json` and no extra crates. The only optional dependency in this crate is `memmap2` under `--features mmap`.
 
 Tracking: [engram-parser#10](https://github.com/rmems/engram-parser/issues/10), [engram-parser#61](https://github.com/rmems/engram-parser/issues/61), and [corinth-canal#116](https://github.com/rmems/corinth-canal/issues/116).
 
 ## What it does NOT do
 
 - No neural-network math: no `matmul`, forward pass, routing execution, or softmax.
-- No CUDA, GPU, SIMD, or runtime inference engine.
+- No CUDA, GPU, SIMD, or runtime inference engine. mmap exposes page-aligned tensor byte ranges so a later GPU crate can host-register; this crate does not.
 - No tokenization or SNN dynamics.
 - No full model-family routing policy; see [`cortex-tensor`](https://github.com/rmems/cortex-tensor).
 - No Safetensors payload execution/matmul.
@@ -51,8 +57,9 @@ This crate **owns**:
 
 - GGUF v3 deserialization: header, KV metadata, tensor directory.
 - MoE expert enumeration and per-expert raw-weight extraction.
-- Zero-dependency, layout-aware dtype handling.
-- Planned feature-gated Safetensors header parsing, manifests, and MoE candidate discovery.
+- Zero-dependency-by-default, layout-aware dtype handling; optional `mmap`.
+- Packed dequant for Q8_0 / Q5_K / Q6_K / IQ3_M block layout.
+- Feature-gated Safetensors header parsing, manifests, and MoE candidate discovery (`--features safetensors`).
 
 This crate **does not own**:
 
@@ -62,13 +69,13 @@ This crate **does not own**:
 - CUDA acceleration → [`myelin-accelerator`](https://github.com/Limen-Neural/myelin-accelerator);
 - end-to-end SAAQ experimentation → [`corinth-canal`](https://github.com/rmems/corinth-canal).
 
-**Allowed dependencies:** none. `[dependencies]` is intentionally empty and is expected to remain empty under the planned `safetensors` feature. The planned header/shard-index JSON parsing will be implemented in-crate rather than through `serde_json` or the upstream `safetensors` crate.
+**Allowed dependencies:** none on the default path. `[dependencies]` is empty unless the `mmap` feature is enabled, in which case optional `memmap2` is the only extra crate. The `safetensors` feature stays zero-dep (in-crate JSON, no `serde_json` / upstream `safetensors` crate).
 
 **Forbidden dependencies:** inference frameworks, GPU backends, domain-specific adapters, and any dependency on `corinth-canal`.
 
 | Crate | Responsibility |
 |---|---|
-| `engram-parser` | GGUF metadata + MoE raw extraction; planned Safetensors metadata/manifest/discovery |
+| `engram-parser` | GGUF metadata + MoE raw extraction + optional mmap/K-quant dequant; feature-gated Safetensors metadata/manifest/discovery |
 | `cortex-tensor` | Tensor/Transformer math + real-weight MoE routing |
 | `hybrid-fusion` | Backend-agnostic Transformer↔SNN orchestration/contracts |
 | `neuromod` | SNN neuron/network dynamics |
@@ -88,9 +95,9 @@ GGUF layout parsing and MoE expert **raw-byte** extraction were expanded using o
 
 ### GGUF wire types vs “GGML”
 
-GGUF stores each tensor dtype as a `ggml_type` integer. `engram-parser` maps those codes to labels and packed byte sizes so payload and MoE slices remain in range. It does **not** implement the GGML runtime, GPU kernels, or general dequantized inference.
+GGUF stores each tensor dtype as a `ggml_type` integer. `engram-parser` maps those codes to labels and packed byte sizes so payload and MoE slices remain in range. Packed dequant is implemented for Q8_0, Q5_K, Q6_K, and the internal IQ3_M **block** id — not a GGML runtime.
 
-Wire-type labels follow the Corinth reference discipline: for example, historical wire type **31** is `Q4_0_4_4`, not the Hugging Face preset name “IQ3_M”. This crate currently has no packed byte-size model for wire type 31, so such a checkpoint is labeled correctly but rejected during layout parsing rather than being treated as supported.
+Wire-type labels follow the Corinth reference discipline: historical wire type **31** is `Q4_0_4_4`, **not** the Hugging Face preset name “IQ3_M”. HuggingFace IQ3_M is a mixed-quant preset; the 111-byte block decoder uses internal `GGML_TYPE_IQ3_M_BLOCK` (`0x4949334D`). Wire 31 still has no packed byte-size model (`DType::Other(31)`), so such a checkpoint is labeled correctly but rejected during layout parsing.
 
 ## Origin / modularization — Safetensors (#10)
 
@@ -104,7 +111,7 @@ The reusable Safetensors metadata surface is being promoted into `engram-parser`
 - MoE candidate discovery;
 - no numerical runtime;
 - no GPU dependency;
-- zero-dependency parsing.
+- zero-dependency parsing (the `safetensors` feature adds no crates).
 
 The initial extraction remains one-way:
 
@@ -175,34 +182,58 @@ for (block, expert) in list_experts(&layout) {
 # Ok::<(), engram_parser::ParserError>(())
 ```
 
-A Safetensors quick-start example will be added when the feature actually lands; the README deliberately does not document an API that is not yet shipped.
+Safetensors (requires `--features safetensors`):
+
+```rust
+use engram_parser::safetensors::inspect_safetensors_checkpoint;
+
+let manifest = inspect_safetensors_checkpoint("./model.safetensors")?;
+println!(
+    "kind={} tensors={}",
+    manifest.checkpoint.input_kind, manifest.checkpoint.tensor_count
+);
+for tensor in &manifest.tensors {
+    println!("{} {:?} {}", tensor.name, tensor.shape, tensor.dtype);
+}
+
+# Ok::<(), engram_parser::ParserError>(())
+```
 
 ## Supported GGUF dtypes
 
-Layout-aware parsing (**packed byte sizes only — no general dequant or GGML compute**) supports:
+Layout-aware parsing (**packed byte sizes**; plus the K-quant dequant helpers below) supports:
 
 - `F32`, `F16`, `BF16`, `F64`;
 - `I8`–`I64`;
 - `Q4_0`, `Q4_1`, `Q5_0`, `Q5_1`, `Q8_0`, `Q8_1`;
 - K-quants `Q2_K`, `Q3_K`, `Q4_K`, `Q5_K`, `Q6_K`, `Q8_K`;
-- IQ packed layouts including `IQ2_XXS`, `IQ2_XS`, `IQ2_S`, `IQ3_XXS`, `IQ3_S`, `IQ1_S`, `IQ1_M`, `IQ4_NL`, `IQ4_XS`.
+- IQ packed layouts including `IQ2_XXS`, `IQ2_XS`, `IQ2_S`, `IQ3_XXS`, `IQ3_S`, `IQ1_S`, `IQ1_M`, `IQ4_NL`, `IQ4_XS`;
+- Internal `IQ3_M_BLOCK` (111 bytes / 256 values) — **not** wire type 31.
 
 Remaining codes use `DType::Other(u32)`. Unknown packed layouts fail closed when element count cannot be converted to a modeled byte length.
 
-Only F32/F16 have in-crate numeric helpers; the parser's primary contract is layout/raw bytes, not general tensor compute.
+Numeric helpers: `dequantize_f16`, `dequantize_q8_0`, `dequantize_q5_k`, `dequantize_q6_k`, `dequantize_iq3_m`. The parser's primary contract is still layout/raw bytes; these unpackers are optional CPU helpers, not a GGML compute path.
 
 ## Public API
 
 Current GGUF surface includes:
 
 - `load_gguf`, `parse_bytes`;
+- `#[cfg(feature = "mmap")] load_gguf_mmap` → `GgufLayoutMmap` (page-aligned tensor slices via `tensor_page_aligned_bytes`);
 - `GgufLayout`, `GgufMetadata`, `Tensor`, `DType`;
+- `dequantize_f16` (on `Tensor`), `dequantize_q8_0`, `dequantize_q5_k`, `dequantize_q6_k`, `dequantize_iq3_m`;
 - `extract_expert`, `list_experts`;
 - `MoeExpertWeights`, `RawTensor`;
 - `ParserError`, `Result`;
 - public `GGML_TYPE_*` / `GGUF_VALUE_TYPE_*` constants and the `ggml_type_label` label function.
 
-Safetensors public types/functions will be documented only after #10 lands.
+Safetensors surface (`--features safetensors`) includes:
+
+- `inspect_safetensors_checkpoint`, `write_safetensors_manifest`;
+- `SafetensorsManifest`, `SafetensorsCheckpointSource`, `SafetensorsTensorRecord`;
+- `classify_tensor`, `discover_candidates`;
+- `SafetensorsCandidateSummary`, `SafetensorsRouterCandidate`, `SafetensorsExpertGroup`;
+- `dtype_size_bytes`.
 
 ## Ecosystem / promotion model
 
@@ -222,11 +253,15 @@ This is coordinated by [corinth-canal#161](https://github.com/rmems/corinth-cana
 
 ## Development
 
-This is a pure-Rust, zero-dependency crate.
+This crate is zero-dependency **by default**. Enable `mmap` for `memmap2`. Enable `safetensors` for header/manifest/discovery.
 
 ```bash
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
+cargo build
+cargo test
+cargo test --features mmap
+cargo test --features safetensors
 cargo build --all-features
 cargo test --all-features
 
@@ -234,7 +269,7 @@ cargo test --all-features
 cargo llvm-cov --all-targets --all-features --locked --lcov --output-path lcov.info
 ```
 
-Real GGUF pilots require local checkpoint files and are intentionally not CI fixtures. `load_gguf` reads and retains the complete file rather than memory-mapping it, so ensure available RAM exceeds the model file size plus working overhead before running a multi-gigabyte checkpoint.
+`load_gguf` reads and retains the complete file. For multi-GB checkpoints use `cargo test --features mmap` / `load_gguf_mmap`. Real GGUF pilots require local files (`ENGRAM_GGUF`) and are `#[ignore]` so CI stays green without them. CUDA host-register is still out of scope.
 
 ```bash
 ENGRAM_GGUF=~/.models/gguf/.../model.gguf ENGRAM_EXPECT_MOE=1 \

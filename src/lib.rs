@@ -8,16 +8,20 @@
 //!
 //! # Features
 //!
-//! - **Zero dependencies**: Pure Rust implementation with no external crates
+//! - **Zero dependencies by default**: the default path is pure Rust with an
+//!   empty `[dependencies]`. The optional `mmap` feature adds `memmap2`.
 //! - **GGUF v3 support**: Full parsing of headers, metadata, and tensor directories
 //! - **GGUF wire-type metadata**: labels + packed `byte_len` for known quant
 //!   codes (F32/F16/BF16, Q*/IQ*, integers, historical wire 31 = `Q4_0_4_4`).
-//!   **No dequant, no GGML kernels, no ggml runtime** — only what the GGUF
-//!   directory needs for in-range payloads and MoE raw slices.
+//!   Packed dequant is implemented for Q8_0, Q5_K, Q6_K, and the internal
+//!   IQ3_M block layout. No GGML kernels, no ggml runtime, no CUDA.
 //! - **Type labels**: Human-readable names via [`ggml_type_label`] (maps the
 //!   on-wire `ggml_type` integer used by GGUF)
 //! - **MoE support**: Extract expert **raw** weights (byte buffers + shape)
 //! - **Metadata helpers**: Architecture-aware convenience methods for common fields
+//! - **Optional Safetensors**: enable `--features safetensors` for header-only
+//!   inspection, deterministic manifests, and MoE candidate discovery (no
+//!   payload mmap, no Hugging Face `config.json` policy)
 //!
 //! # Example
 //!
@@ -42,6 +46,8 @@
 pub mod error;
 pub mod gguf;
 pub mod moe;
+#[cfg(feature = "safetensors")]
+pub mod safetensors;
 
 // Re-export commonly used types at the crate root for convenience.
 pub use error::{ParserError, Result};
@@ -61,6 +67,7 @@ pub use gguf::{
     GGML_TYPE_IQ2_S,
     GGML_TYPE_IQ2_XS,
     GGML_TYPE_IQ2_XXS,
+    GGML_TYPE_IQ3_M_BLOCK,
     GGML_TYPE_IQ3_S,
     GGML_TYPE_IQ3_XXS,
     GGML_TYPE_IQ4_NL,
@@ -95,9 +102,17 @@ pub use gguf::{
     GgufLayout,
     GgufMetadata,
     Tensor,
+    dequantize_iq3_m,
+    dequantize_packed,
+    dequantize_q5_k,
+    dequantize_q6_k,
+    dequantize_q8_0,
     f16_bits_to_f32,
     ggml_type_label,
     load_gguf,
+    packed_row_size,
     parse_bytes,
 };
+#[cfg(feature = "mmap")]
+pub use gguf::{GgufLayoutMmap, PageAlignedTensorBytes, load_gguf_mmap, os_page_size};
 pub use moe::{MoeExpertWeights, RawTensor, extract_expert, list_experts};

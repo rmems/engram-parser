@@ -1,0 +1,7 @@
+{
+  "metadata": {"total_size": 4},
+  "weight_map": {
+    "b.weight": "model-00002-of-00002.safetensors",
+    "a.weight": "model-00001-of-00002.safetensors"
+  }
+}
