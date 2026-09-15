@@ -1,0 +1,31 @@
+src/safetensors/mod.rs
+  s_444ff6bfb217bc::t_5b50f929bd79e9 46-55
+src/safetensors/json.rs
+  s_444ff6bfb217bc::t_3ceefcc8e7fff7 599-606
+  s_444ff6bfb217bc::t_09983a602f8c9f 416-418
+src/gguf/dequant.rs
+  s_444ff6bfb217bc::t_8f616ebe725540 360-362
+  s_444ff6bfb217bc::t_794c4b468847f8 543
+src/safetensors/validate.rs
+  s_444ff6bfb217bc::t_ea24333bd1ab44 5-6
+  s_444ff6bfb217bc::t_8c7fe952fd89b7 13
+  s_444ff6bfb217bc::t_67e702eb931dcc 138-139
+  s_444ff6bfb217bc::t_5ca9fa10ca679e 174,176-189
+  s_444ff6bfb217bc::t_6fa2f342fc5247 175
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c0bf6deee2e59753cbaa177c76c525ac64ac41a7",
+  "prompts": {},
+  "sessions": {
+    "s_444ff6bfb217bc": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "a09a3773-387d-4b9e-9e88-7dda880cdefa",
+        "model": "cursor-grok-4.6-high"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
