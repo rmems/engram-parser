@@ -10,16 +10,11 @@
 use std::collections::HashMap;
 
 use super::cursor::{
-    GGUF_MAGIC, GGUF_VALUE_TYPE_STRING, GGUF_VERSION, GgufCursor, invalid_layout,
-    is_signed_layout_type, unsupported,
+    GGUF_MAGIC, GGUF_VERSION, GgufCursor, invalid_layout, is_signed_layout_type, unsupported,
 };
+use super::limits::{ParseLimits, align_up_checked, u64_to_usize};
 use super::tensor::{DType, Tensor};
-use crate::error::{ParserError, Result};
-
-/// Upper bounds to prevent OOM from malformed inputs.
-const MAX_TENSOR_COUNT: u64 = 1_000_000;
-const MAX_KV_COUNT: u64 = 1_000_000;
-const MAX_TENSOR_DIMS: usize = 8;
+use crate::error::{HostSizeField, ParseLimitKind, ParserError, Result};
 
 /// Parsed GGUF metadata key-value store.
 ///
@@ -245,19 +240,32 @@ struct LayoutHeader {
 pub(crate) fn parse_layout(
     bytes: &[u8],
     path: &str,
+    limits: ParseLimits,
 ) -> Result<(GgufMetadata, HashMap<String, Tensor>, usize, usize)> {
-    let mut cursor = GgufCursor::new(bytes, path);
+    let mut cursor = GgufCursor::with_limits(bytes, path, limits);
     let header = read_layout_header(&mut cursor, path)?;
     let (alignment, metadata) = read_metadata_section(&mut cursor, path, header.kv_count)?;
     let mut tensors = read_tensor_directory(&mut cursor, path, header.tensor_count)?;
-    let tensor_data_offset = finalize_tensor_offsets(&mut tensors, cursor.offset(), alignment);
+    let tensor_data_offset =
+        finalize_tensor_offsets(&mut tensors, cursor.offset(), alignment, path)?;
     Ok((metadata, tensors, alignment, tensor_data_offset))
 }
 
 fn read_layout_header(cursor: &mut GgufCursor<'_>, path: &str) -> Result<LayoutHeader> {
     validate_gguf_header(cursor, path)?;
-    let tensor_count = bounded_count(cursor.read_u64()?, MAX_TENSOR_COUNT, "tensor_count", path)?;
-    let kv_count = bounded_count(cursor.read_u64()?, MAX_KV_COUNT, "kv_count", path)?;
+    let limits = cursor.limits();
+    let tensor_count = limits.bounded_usize(
+        path,
+        ParseLimitKind::TensorCount,
+        HostSizeField::TensorCount,
+        cursor.read_u64()?,
+    )?;
+    let kv_count = limits.bounded_usize(
+        path,
+        ParseLimitKind::KvCount,
+        HostSizeField::KvCount,
+        cursor.read_u64()?,
+    )?;
     Ok(LayoutHeader {
         tensor_count,
         kv_count,
@@ -284,16 +292,6 @@ fn validate_gguf_header(cursor: &mut GgufCursor<'_>, path: &str) -> Result<()> {
     Ok(())
 }
 
-fn bounded_count(raw: u64, limit: u64, label: &str, path: &str) -> Result<usize> {
-    if raw > limit {
-        return Err(unsupported(
-            path,
-            format!("{label} {raw} exceeds sanity limit {limit}"),
-        ));
-    }
-    Ok(raw as usize)
-}
-
 fn read_metadata_section(
     cursor: &mut GgufCursor<'_>,
     path: &str,
@@ -301,6 +299,7 @@ fn read_metadata_section(
 ) -> Result<(usize, GgufMetadata)> {
     let mut alignment: usize = 32;
     let mut metadata = GgufMetadata::default();
+    cursor.begin_metadata_section();
 
     for _ in 0..kv_count {
         let key = cursor.read_string()?;
@@ -320,6 +319,7 @@ fn read_metadata_section(
         }
     }
 
+    cursor.end_metadata_section();
     Ok((alignment, metadata))
 }
 
@@ -340,7 +340,7 @@ fn read_tensor_entry(cursor: &mut GgufCursor<'_>, path: &str) -> Result<Tensor> 
     let name = cursor.read_string()?;
     let dims = read_tensor_dims(cursor, path, &name)?;
     let ggml_type = cursor.read_u32()?;
-    let relative_offset = cursor.read_u64()? as usize;
+    let relative_offset = u64_to_usize(cursor.read_u64()?, HostSizeField::RelativeOffset, path)?;
     let dtype = DType::from_ggml_type(ggml_type);
     let n_elements = tensor_element_count(&dims, &name, path)?;
     validate_blocked_inner_dim(dtype, &dims, &name, path)?;
@@ -381,18 +381,22 @@ fn validate_blocked_inner_dim(dtype: DType, dims: &[usize], name: &str, path: &s
     ))
 }
 
-fn read_tensor_dims(cursor: &mut GgufCursor<'_>, path: &str, name: &str) -> Result<Vec<usize>> {
-    let n_dims_raw = cursor.read_u32()? as usize;
-    if n_dims_raw > MAX_TENSOR_DIMS {
-        return Err(unsupported(
-            path,
-            format!("tensor '{name}' has {n_dims_raw} dims; max {MAX_TENSOR_DIMS}"),
-        ));
-    }
+fn read_tensor_dims(cursor: &mut GgufCursor<'_>, path: &str, _name: &str) -> Result<Vec<usize>> {
+    let n_dims_raw = u64::from(cursor.read_u32()?);
+    let n_dims = cursor.limits().bounded_usize(
+        path,
+        ParseLimitKind::TensorRank,
+        HostSizeField::TensorRank,
+        n_dims_raw,
+    )?;
 
-    let mut dims = Vec::with_capacity(n_dims_raw);
-    for _ in 0..n_dims_raw {
-        dims.push(cursor.read_u64()? as usize);
+    let mut dims = Vec::with_capacity(n_dims);
+    for _ in 0..n_dims {
+        dims.push(u64_to_usize(
+            cursor.read_u64()?,
+            HostSizeField::TensorDim,
+            path,
+        )?);
     }
     Ok(dims)
 }
@@ -424,12 +428,30 @@ fn finalize_tensor_offsets(
     tensors: &mut HashMap<String, Tensor>,
     cursor_offset: usize,
     alignment: usize,
-) -> usize {
-    let tensor_data_offset = align_up(cursor_offset, alignment);
+    path: &str,
+) -> Result<usize> {
+    let tensor_data_offset = align_up_checked(cursor_offset, alignment, path)?;
     for tensor in tensors.values_mut() {
-        tensor.absolute_offset = tensor_data_offset + tensor.relative_offset;
+        tensor.absolute_offset = tensor_data_offset
+            .checked_add(tensor.relative_offset)
+            .ok_or_else(|| {
+                invalid_layout(
+                    path,
+                    format!("tensor '{}' absolute offset overflow", tensor.name),
+                )
+            })?;
+        if tensor
+            .absolute_offset
+            .checked_add(tensor.byte_len)
+            .is_none()
+        {
+            return Err(invalid_layout(
+                path,
+                format!("tensor '{}' byte-length overflow", tensor.name),
+            ));
+        }
     }
-    tensor_data_offset
+    Ok(tensor_data_offset)
 }
 
 fn capture_kv(
@@ -441,8 +463,8 @@ fn capture_kv(
     use super::cursor::{
         GGUF_VALUE_TYPE_BOOL, GGUF_VALUE_TYPE_FLOAT32, GGUF_VALUE_TYPE_FLOAT64,
         GGUF_VALUE_TYPE_INT8, GGUF_VALUE_TYPE_INT16, GGUF_VALUE_TYPE_INT32, GGUF_VALUE_TYPE_INT64,
-        GGUF_VALUE_TYPE_UINT8, GGUF_VALUE_TYPE_UINT16, GGUF_VALUE_TYPE_UINT32,
-        GGUF_VALUE_TYPE_UINT64,
+        GGUF_VALUE_TYPE_STRING, GGUF_VALUE_TYPE_UINT8, GGUF_VALUE_TYPE_UINT16,
+        GGUF_VALUE_TYPE_UINT32, GGUF_VALUE_TYPE_UINT64,
     };
     match value_type {
         GGUF_VALUE_TYPE_UINT8
@@ -507,14 +529,6 @@ fn capture_string_kv(
 
 fn capture_skipped_kv(cursor: &mut GgufCursor<'_>, value_type: u32) -> Result<()> {
     cursor.skip_value(value_type)
-}
-
-fn align_up(value: usize, alignment: usize) -> usize {
-    if alignment <= 1 {
-        value
-    } else {
-        value.div_ceil(alignment) * alignment
-    }
 }
 
 fn tensor_block_sort_key(name: &str) -> (usize, String) {

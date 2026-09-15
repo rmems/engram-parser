@@ -13,6 +13,15 @@ All notable changes to this project are documented in this file.
   crates: `[dependencies]` stays empty for this feature; the upstream
   `safetensors` crate, `serde_json`, and `corinth-canal` are not used. Does
   not include payload mmap or Hugging Face `config.json` policy.
+- **GGUF `ParseLimits` (RM-1358):** documented resource budgets for untrusted
+  GGUF headers — KV count, tensor count, string bytes, array work items,
+  tensor rank, and metadata bytes. File-declared `u64` sizes convert with
+  typed [`HostSizeField`] errors; exhausted budgets return
+  [`ParserError::LimitExceeded`] naming the limit. Alignment, tensor offsets,
+  element counts, and packed byte sizes use checked arithmetic. Default and
+  `mmap` readers share the same policy. Trusted callers override via
+  `load_gguf_with_limits` / `parse_bytes_with_limits` /
+  `load_gguf_mmap_with_limits` without changing default safety.
 - **Optional `mmap` feature (#45 option 1):** `load_gguf_mmap` maps a GGUF with
   `memmap2` 0.9.11 instead of `fs::read` into a `Vec<u8>`. Default builds stay
   zero-dep (`default = []`). Packed CPU dequant for **Q8_0**, **Q5_K**,

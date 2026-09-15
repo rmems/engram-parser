@@ -10,6 +10,10 @@
 //!
 //! - **Zero dependencies by default**: the default path is pure Rust with an
 //!   empty `[dependencies]`. The optional `mmap` feature adds `memmap2`.
+//! - **Parse limits**: [`ParseLimits`] is a documented budget for KV/tensor
+//!   counts, string sizes, array work, tensor rank, and metadata bytes.
+//!   File-declared `u64` sizes convert with [`HostSizeField`] errors.
+//!   Defaults stay generous; trusted callers override explicitly.
 //! - **GGUF v3 support**: Full parsing of headers, metadata, and tensor directories
 //! - **GGUF wire-type metadata**: labels + packed `byte_len` for known quant
 //!   codes (F32/F16/BF16, Q*/IQ*, integers, historical wire 31 = `Q4_0_4_4`).
@@ -50,7 +54,7 @@ pub mod moe;
 pub mod safetensors;
 
 // Re-export commonly used types at the crate root for convenience.
-pub use error::{ParserError, Result};
+pub use error::{HostSizeField, ParseLimitKind, ParserError, Result};
 pub use gguf::{
     DType,
     // GGML type constants
@@ -101,6 +105,7 @@ pub use gguf::{
     GGUF_VALUE_TYPE_UINT64,
     GgufLayout,
     GgufMetadata,
+    ParseLimits,
     Tensor,
     dequantize_iq3_m,
     dequantize_packed,
@@ -110,9 +115,14 @@ pub use gguf::{
     f16_bits_to_f32,
     ggml_type_label,
     load_gguf,
+    load_gguf_with_limits,
     packed_row_size,
     parse_bytes,
+    parse_bytes_with_limits,
 };
 #[cfg(feature = "mmap")]
-pub use gguf::{GgufLayoutMmap, PageAlignedTensorBytes, load_gguf_mmap, os_page_size};
+pub use gguf::{
+    GgufLayoutMmap, PageAlignedTensorBytes, load_gguf_mmap, load_gguf_mmap_with_limits,
+    os_page_size,
+};
 pub use moe::{MoeExpertWeights, RawTensor, extract_expert, list_experts};

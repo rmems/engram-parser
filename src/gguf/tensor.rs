@@ -490,13 +490,19 @@ impl Tensor {
                 reason: format!("read_f32_values called on dtype {:?}", self.dtype),
             });
         }
-        if bytes.len() != self.n_elements * 4 {
+        let expected =
+            self.n_elements
+                .checked_mul(4)
+                .ok_or_else(|| ParserError::InvalidLayout {
+                    path: self.name.clone(),
+                    reason: "f32 element-count overflow".into(),
+                })?;
+        if bytes.len() != expected {
             return Err(ParserError::InvalidLayout {
                 path: self.name.clone(),
                 reason: format!(
-                    "f32 byte-length mismatch: bytes={}, expected={}",
-                    bytes.len(),
-                    self.n_elements * 4
+                    "f32 byte-length mismatch: bytes={}, expected={expected}",
+                    bytes.len()
                 ),
             });
         }
@@ -517,13 +523,19 @@ impl Tensor {
                 reason: format!("read_u16_values called on dtype {:?}", self.dtype),
             });
         }
-        if bytes.len() != self.n_elements * 2 {
+        let expected =
+            self.n_elements
+                .checked_mul(2)
+                .ok_or_else(|| ParserError::InvalidLayout {
+                    path: self.name.clone(),
+                    reason: "16-bit element-count overflow".into(),
+                })?;
+        if bytes.len() != expected {
             return Err(ParserError::InvalidLayout {
                 path: self.name.clone(),
                 reason: format!(
-                    "16-bit byte-length mismatch: bytes={}, expected={}",
-                    bytes.len(),
-                    self.n_elements * 2
+                    "16-bit byte-length mismatch: bytes={}, expected={expected}",
+                    bytes.len()
                 ),
             });
         }
@@ -545,13 +557,19 @@ impl Tensor {
                 reason: format!("dequantize_f16 called on dtype {:?}", self.dtype),
             });
         }
-        if bytes.len() != self.n_elements * 2 {
+        let expected =
+            self.n_elements
+                .checked_mul(2)
+                .ok_or_else(|| ParserError::InvalidLayout {
+                    path: self.name.clone(),
+                    reason: "f16 element-count overflow".into(),
+                })?;
+        if bytes.len() != expected {
             return Err(ParserError::InvalidLayout {
                 path: self.name.clone(),
                 reason: format!(
-                    "f16 byte-length mismatch: bytes={}, expected={}",
-                    bytes.len(),
-                    self.n_elements * 2
+                    "f16 byte-length mismatch: bytes={}, expected={expected}",
+                    bytes.len()
                 ),
             });
         }
