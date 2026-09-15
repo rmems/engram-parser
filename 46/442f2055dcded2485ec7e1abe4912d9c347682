@@ -1,0 +1,31 @@
+src/gguf/map.rs
+  s_444ff6bfb217bc::t_ea2f217d25cd24 154-159
+  s_444ff6bfb217bc::t_2327f44fd6915a 196-199
+src/safetensors/json.rs
+  s_444ff6bfb217bc::t_5a16e4b25b09b5 205-212,218-229
+  s_444ff6bfb217bc::t_6f8cd852a9fa9f 162
+  s_444ff6bfb217bc::t_3bd3db9144a993 140-142,148
+  s_444ff6bfb217bc::t_7a34d61159402b 611-620
+src/gguf/dequant.rs
+  s_444ff6bfb217bc::t_17afd0ccbdb7e8 458,460,463,469-497
+  s_444ff6bfb217bc::t_395d14907dbeba 184-185,190-191,193
+  s_444ff6bfb217bc::t_743cc983c51663 209-219,228-231,234
+README.md
+  s_444ff6bfb217bc::t_655c101bcff982 72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "46442f2055dcded2485ec7e1abe4912d9c347682",
+  "prompts": {},
+  "sessions": {
+    "s_444ff6bfb217bc": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "a09a3773-387d-4b9e-9e88-7dda880cdefa",
+        "model": "cursor-grok-4.6-high"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
