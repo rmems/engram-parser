@@ -75,3 +75,24 @@ pub(super) fn unsupported(path: &Path, reason: String) -> ParserError {
         reason,
     }
 }
+
+pub(super) fn duplicate_tensor_ownership(
+    path: &Path,
+    name: impl Into<String>,
+    mut shards: Vec<String>,
+) -> ParserError {
+    shards.sort();
+    shards.dedup();
+    ParserError::DuplicateTensorOwnership {
+        name: name.into(),
+        shards,
+        path: path.display().to_string(),
+    }
+}
+
+pub(super) fn missing_shard(path: &Path, shard: impl Into<String>) -> ParserError {
+    ParserError::MissingShard {
+        shard: shard.into(),
+        path: path.display().to_string(),
+    }
+}

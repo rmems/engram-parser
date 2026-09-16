@@ -6,6 +6,7 @@ use super::manifest::{
 };
 use super::paths::{canonical_existing_or_parent, parent_or_current};
 use super::*;
+use crate::ParserError;
 use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::Write;
@@ -231,6 +232,183 @@ fn rejects_index_shard_paths_that_escape_checkpoint_directory() {
     );
 }
 
+#[test]
+fn rejects_absolute_index_shard_paths() {
+    let dir = temp_dir("absolute");
+    let outside = temp_dir("absolute-outside");
+    let outside_shard = outside.join("outside.safetensors");
+    write_safetensors(
+        &outside_shard,
+        r#"{"a.weight": {"dtype": "F16", "shape": [1], "data_offsets": [0, 2]}}"#,
+        2,
+    );
+    let escaped = outside_shard.to_string_lossy().replace('\\', "\\\\");
+    fs::write(
+        dir.join("model.safetensors.index.json"),
+        format!(r#"{{"weight_map": {{"a.weight": "{escaped}"}}}}"#),
+    )
+    .unwrap();
+
+    let err = inspect_safetensors_checkpoint(&dir).unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("must be checkpoint-relative, not absolute")
+    );
+}
+
+#[test]
+fn accepts_parent_dir_index_paths_that_stay_within_checkpoint_root() {
+    let dir = temp_dir("nested-parent");
+    write_safetensors(
+        &dir.join("model.safetensors"),
+        r#"{"a.weight": {"dtype": "F16", "shape": [1], "data_offsets": [0, 2]}}"#,
+        2,
+    );
+    fs::write(
+        dir.join("model.safetensors.index.json"),
+        r#"{
+                "weight_map": {
+                    "a.weight": "nested/../model.safetensors"
+                }
+            }"#,
+    )
+    .unwrap();
+
+    let manifest = inspect_safetensors_checkpoint(&dir).unwrap();
+    assert_eq!(manifest.checkpoint.shard_count, 1);
+    assert_eq!(manifest.tensors[0].source_shard, "model.safetensors");
+}
+
+#[test]
+fn missing_referenced_shard_fails_before_manifest() {
+    let dir = temp_dir("missing-shard");
+    fs::write(
+        dir.join("model.safetensors.index.json"),
+        r#"{
+                "weight_map": {
+                    "a.weight": "missing.safetensors"
+                }
+            }"#,
+    )
+    .unwrap();
+
+    let err = inspect_safetensors_checkpoint(&dir).unwrap_err();
+    match err {
+        ParserError::MissingShard { shard, path } => {
+            assert_eq!(shard, "missing.safetensors");
+            assert!(path.ends_with("model.safetensors.index.json"));
+        }
+        other => panic!("expected MissingShard, got {other}"),
+    }
+}
+
+#[test]
+fn duplicate_directory_tensor_ownership_is_typed() {
+    let dir = temp_dir("dup-dir");
+    write_safetensors(
+        &dir.join("a.safetensors"),
+        r#"{"shared.weight": {"dtype": "F16", "shape": [1], "data_offsets": [0, 2]}}"#,
+        2,
+    );
+    write_safetensors(
+        &dir.join("b.safetensors"),
+        r#"{"shared.weight": {"dtype": "F16", "shape": [1], "data_offsets": [0, 2]}}"#,
+        2,
+    );
+
+    let err = inspect_safetensors_checkpoint(&dir).unwrap_err();
+    match err {
+        ParserError::DuplicateTensorOwnership { name, shards, path } => {
+            assert_eq!(name, "shared.weight");
+            assert_eq!(
+                shards,
+                vec!["a.safetensors".to_string(), "b.safetensors".to_string()]
+            );
+            assert_eq!(Path::new(&path), dir.as_ref());
+        }
+        other => panic!("expected DuplicateTensorOwnership, got {other}"),
+    }
+}
+
+#[test]
+fn duplicate_index_tensor_ownership_is_typed() {
+    let dir = temp_dir("dup-index");
+    write_safetensors(
+        &dir.join("model-00001-of-00002.safetensors"),
+        r#"{"shared.weight": {"dtype": "F16", "shape": [1], "data_offsets": [0, 2]}}"#,
+        2,
+    );
+    write_safetensors(
+        &dir.join("model-00002-of-00002.safetensors"),
+        r#"{
+                "shared.weight": {"dtype": "F16", "shape": [1], "data_offsets": [0, 2]},
+                "other.weight": {"dtype": "F16", "shape": [1], "data_offsets": [2, 4]}
+            }"#,
+        4,
+    );
+    fs::write(
+        dir.join("model.safetensors.index.json"),
+        r#"{
+                "weight_map": {
+                    "shared.weight": "model-00001-of-00002.safetensors",
+                    "other.weight": "model-00002-of-00002.safetensors"
+                }
+            }"#,
+    )
+    .unwrap();
+
+    let err = inspect_safetensors_checkpoint(&dir).unwrap_err();
+    match err {
+        ParserError::DuplicateTensorOwnership { name, shards, .. } => {
+            assert_eq!(name, "shared.weight");
+            assert_eq!(
+                shards,
+                vec![
+                    "model-00001-of-00002.safetensors".to_string(),
+                    "model-00002-of-00002.safetensors".to_string()
+                ]
+            );
+        }
+        other => panic!("expected DuplicateTensorOwnership, got {other}"),
+    }
+}
+
+#[test]
+fn shuffled_directory_creation_order_yields_identical_manifests() {
+    let first = temp_dir("shuffle-a");
+    write_safetensors(
+        &first.join("z.safetensors"),
+        r#"{"z.weight": {"dtype": "F16", "shape": [1], "data_offsets": [0, 2]}}"#,
+        2,
+    );
+    write_safetensors(
+        &first.join("a.safetensors"),
+        r#"{"a.weight": {"dtype": "F16", "shape": [1], "data_offsets": [0, 2]}}"#,
+        2,
+    );
+
+    let second = temp_dir("shuffle-b");
+    write_safetensors(
+        &second.join("a.safetensors"),
+        r#"{"a.weight": {"dtype": "F16", "shape": [1], "data_offsets": [0, 2]}}"#,
+        2,
+    );
+    write_safetensors(
+        &second.join("z.safetensors"),
+        r#"{"z.weight": {"dtype": "F16", "shape": [1], "data_offsets": [0, 2]}}"#,
+        2,
+    );
+
+    let manifest_a = inspect_safetensors_checkpoint(&first).unwrap();
+    let manifest_b = inspect_safetensors_checkpoint(&second).unwrap();
+    let json_a = manifest_a.to_pretty_json();
+    let json_b = manifest_b.to_pretty_json();
+    assert_eq!(json_a, json_b);
+    assert_eq!(json_a, manifest_a.to_pretty_json());
+    assert_eq!(manifest_a.tensors[0].name, "a.weight");
+    assert_eq!(manifest_a.tensors[1].name, "z.weight");
+}
+
 #[cfg(unix)]
 #[test]
 fn rejects_index_shard_paths_that_escape_via_symlink() {
@@ -280,6 +458,49 @@ fn rejects_directory_index_that_escapes_via_symlink() {
     assert!(
         err.to_string()
             .contains("must stay within the checkpoint directory")
+    );
+}
+
+/// Non-unix targets cannot portably create out-of-root symlinks (Windows needs
+/// `SeCreateSymbolicLinkPrivilege`; other platforms vary). Lexical absolute and
+/// `..` rejection still applies; unix symlink coverage lives in
+/// `rejects_index_shard_paths_that_escape_via_symlink` and
+/// `rejects_directory_index_that_escapes_via_symlink`. Existing paths are still
+/// checked with `canonicalize` via `validate_path_stays_under_root`.
+#[cfg(not(unix))]
+#[test]
+fn non_unix_symlink_escape_falls_back_to_lexical_path_guards() {
+    let dir = temp_dir("non-unix-symlink-fallback");
+    fs::write(
+        dir.join("model.safetensors.index.json"),
+        r#"{"weight_map": {"a.weight": "../outside.safetensors"}}"#,
+    )
+    .unwrap();
+    let parent_err = inspect_safetensors_checkpoint(&dir).unwrap_err();
+    assert!(
+        parent_err
+            .to_string()
+            .contains("must stay within the checkpoint directory")
+    );
+
+    let outside = temp_dir("non-unix-absolute-outside");
+    let outside_shard = outside.join("outside.safetensors");
+    write_safetensors(
+        &outside_shard,
+        r#"{"a.weight": {"dtype": "F16", "shape": [1], "data_offsets": [0, 2]}}"#,
+        2,
+    );
+    let escaped = outside_shard.to_string_lossy().replace('\\', "\\\\");
+    fs::write(
+        dir.join("model.safetensors.index.json"),
+        format!(r#"{{"weight_map": {{"a.weight": "{escaped}"}}}}"#),
+    )
+    .unwrap();
+    let absolute_err = inspect_safetensors_checkpoint(&dir).unwrap_err();
+    assert!(
+        absolute_err
+            .to_string()
+            .contains("must be checkpoint-relative, not absolute")
     );
 }
 
@@ -762,7 +983,9 @@ fn discovery_does_not_double_list_experts_as_routers() {
         vec![PathBuf::from("experts.safetensors")],
         BTreeMap::new(),
         vec![tensor],
-    );
+        Path::new("experts.safetensors"),
+    )
+    .unwrap();
     assert_eq!(manifest.candidates.router_tensors, Vec::<String>::new());
     assert_eq!(manifest.candidates.expert_tensors, vec![expert_name]);
     assert_eq!(manifest.tensors[0].labels, vec!["moe_expert_candidate"]);
@@ -786,7 +1009,9 @@ fn named_family_requires_router_and_expert_evidence() {
         vec![PathBuf::from("model.safetensors")],
         BTreeMap::new(),
         vec![tensor],
-    );
+        Path::new("model.safetensors"),
+    )
+    .unwrap();
     assert_eq!(manifest.candidates.detected_layout_family, None);
     assert!(manifest.candidates.router_tensors.is_empty());
     assert!(manifest.candidates.expert_tensors.is_empty());
@@ -824,7 +1049,9 @@ fn unknown_expert_weight_kind_is_retained() {
         ],
         BTreeMap::new(),
         vec![router, expert],
-    );
+        Path::new("checkpoint"),
+    )
+    .unwrap();
     assert_eq!(
         manifest.candidates.detected_layout_family,
         Some("generic_moe")
@@ -859,7 +1086,9 @@ fn expert_groups_keep_parallel_layer_stacks_separate() {
         vec![PathBuf::from("experts.safetensors")],
         BTreeMap::new(),
         tensors,
-    );
+        Path::new("experts.safetensors"),
+    )
+    .unwrap();
     let group_keys = manifest
         .candidates
         .expert_groups

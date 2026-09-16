@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Path validation and same-file checks for Safetensors shards.
 
-use super::{io_error, model_load};
+use super::{io_error, missing_shard, model_load};
 use crate::error::Result;
 use std::fs;
+use std::io::ErrorKind;
 #[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
 use std::path::{Component, Path, PathBuf};
@@ -181,23 +182,47 @@ pub(super) fn is_safetensors_index(path: &Path) -> bool {
         .is_some_and(|name| name.ends_with(".safetensors.index.json"))
 }
 
+/// Resolve an index `weight_map` shard reference against `root`.
+///
+/// Absolute paths and `..` segments that would leave `root` are rejected
+/// lexically. Remaining `..` / `.` segments are normalized so
+/// `nested/../model.safetensors` stays portable and checkpoint-relative.
+/// Missing targets fail with [`crate::ParserError::MissingShard`]. Existing
+/// paths are canonicalized so symlink escape is rejected where the platform
+/// can follow links.
 pub(super) fn index_shard_path(root: &Path, index_path: &Path, relative: &str) -> Result<PathBuf> {
     let relative_path = Path::new(relative);
-    let mut normalized = PathBuf::new();
-    let escapes_root = relative_path.is_absolute()
-        || relative_path.components().any(|component| match component {
-            Component::Normal(part) => {
-                normalized.push(part);
-                false
-            }
-            Component::CurDir => false,
-            Component::ParentDir | Component::RootDir | Component::Prefix(_) => true,
-        });
-    if escapes_root {
+    if relative_path.is_absolute() {
         return Err(model_load(
             index_path,
-            format!("index shard path '{relative}' must stay within the checkpoint directory"),
+            format!("index shard path '{relative}' must be checkpoint-relative, not absolute"),
         ));
+    }
+
+    let mut normalized = PathBuf::new();
+    for component in relative_path.components() {
+        match component {
+            Component::Normal(part) => normalized.push(part),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !normalized.pop() {
+                    return Err(model_load(
+                        index_path,
+                        format!(
+                            "index shard path '{relative}' must stay within the checkpoint directory"
+                        ),
+                    ));
+                }
+            }
+            Component::RootDir | Component::Prefix(_) => {
+                return Err(model_load(
+                    index_path,
+                    format!(
+                        "index shard path '{relative}' must be checkpoint-relative, not absolute"
+                    ),
+                ));
+            }
+        }
     }
     if normalized.as_os_str().is_empty() {
         return Err(model_load(
@@ -205,7 +230,20 @@ pub(super) fn index_shard_path(root: &Path, index_path: &Path, relative: &str) -
             format!("index shard path '{relative}' must name a Safetensors shard"),
         ));
     }
-    let candidate = root.join(normalized);
+    let candidate = root.join(&normalized);
+    match fs::metadata(&candidate) {
+        Err(err) if err.kind() == ErrorKind::NotFound => {
+            return Err(missing_shard(index_path, relative));
+        }
+        Err(err) => return Err(io_error(&candidate, err)),
+        Ok(metadata) if !metadata.is_file() => {
+            return Err(model_load(
+                index_path,
+                format!("index shard path '{relative}' must name a regular Safetensors file"),
+            ));
+        }
+        Ok(_) => {}
+    }
     validate_path_stays_under_root(root, &candidate)?;
     Ok(candidate)
 }
