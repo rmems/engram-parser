@@ -22,6 +22,17 @@ All notable changes to this project are documented in this file.
   `mmap` readers share the same policy. Trusted callers override via
   `load_gguf_with_limits` / `parse_bytes_with_limits` /
   `load_gguf_mmap_with_limits` without changing default safety.
+- **Safetensors shard-index invariants ([RM-1360](https://linear.app/rpd-34/issue/RM-1360)):**
+  index shard paths resolve relative to the checkpoint root; absolute paths
+  and `..` traversal that would leave the root are rejected; existing paths
+  are canonicalized to reject symlink escape where the platform can follow
+  links. Each indexed tensor must map to exactly one existing shard.
+  Duplicate/conflicting ownership fails with
+  `ParserError::DuplicateTensorOwnership` (tensor name + shard list). Missing
+  referenced shards fail with `ParserError::MissingShard` before a manifest is
+  returned. Unreferenced on-disk shards are reported via
+  `index:unreferenced_shards` rather than rejected. Directory listings and
+  tensor records are sorted so repeated inspection is byte-identical.
 - **Optional `mmap` feature (#45 option 1):** `load_gguf_mmap` maps a GGUF with
   `memmap2` 0.9.11 instead of `fs::read` into a `Vec<u8>`. Default builds stay
   zero-dep (`default = []`). Packed CPU dequant for **Q8_0**, **Q5_K**,

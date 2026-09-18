@@ -152,6 +152,22 @@ pub enum ParserError {
         /// Declared value that does not fit in `usize`.
         value: u64,
     },
+    /// A tensor name is claimed by more than one Safetensors shard.
+    DuplicateTensorOwnership {
+        /// Tensor name with conflicting owners.
+        name: String,
+        /// Checkpoint-relative shard paths that declare the tensor, sorted.
+        shards: Vec<String>,
+        /// Path of the checkpoint or index being inspected.
+        path: String,
+    },
+    /// An index-referenced Safetensors shard is missing on disk.
+    MissingShard {
+        /// Shard path as declared in the index (checkpoint-relative).
+        shard: String,
+        /// Path of the index or checkpoint that referenced the shard.
+        path: String,
+    },
 }
 
 impl ParserError {
@@ -212,6 +228,16 @@ impl fmt::Display for ParserError {
                 f,
                 "host-size conversion failed in '{path}': field {field} value {value} does not fit usize"
             ),
+            Self::DuplicateTensorOwnership { name, shards, path } => {
+                write!(
+                    f,
+                    "duplicate tensor ownership for '{name}' across shards {} in '{path}'",
+                    shards.join(", ")
+                )
+            }
+            Self::MissingShard { shard, path } => {
+                write!(f, "missing shard '{shard}' referenced by '{path}'")
+            }
         }
     }
 }
@@ -225,7 +251,9 @@ impl std::error::Error for ParserError {
             | Self::InvalidLayout { .. }
             | Self::ExpertOutOfRange { .. }
             | Self::LimitExceeded { .. }
-            | Self::HostSizeOverflow { .. } => None,
+            | Self::HostSizeOverflow { .. }
+            | Self::DuplicateTensorOwnership { .. }
+            | Self::MissingShard { .. } => None,
         }
     }
 }

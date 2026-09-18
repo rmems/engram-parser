@@ -50,6 +50,10 @@ fn error_payload(err: &ParserError) -> String {
         ParserError::HostSizeOverflow { field, value, .. } => {
             format!("host:{field}:{value}")
         }
+        ParserError::DuplicateTensorOwnership { name, shards, .. } => {
+            format!("dup:{name}:{}", shards.join(","))
+        }
+        ParserError::MissingShard { shard, .. } => format!("missing-shard:{shard}"),
     }
 }
 
