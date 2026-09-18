@@ -1,0 +1,39 @@
+src/error.rs
+  ai_agent 155-170,231-240,254-256
+tests/gguf_limits.rs
+  s_14d3df6b4e9b86::t_30956ebc3d77e8 53-56
+src/safetensors/manifest.rs
+  ai_agent 16,27-29,391,397-398,469-470,472-473,476-488,493,504,525,547-604,613-614,620,623,635-654,656,901
+.github/workflows/security.yml
+  ai_agent 55,81
+.github/workflows/ci.yml
+  ai_agent 67
+src/safetensors/mod.rs
+  ai_agent 78-98
+CHANGELOG.md
+  ai_agent 25-35
+README.md
+  ai_agent 36-37,239-240
+src/safetensors/paths.rs
+  ai_agent 4,7,185-192,195,198,201-226,233-245
+src/safetensors/tests.rs
+  ai_agent 9,235-411,464-506,986-988,1012-1014,1052-1054,1089-1091
+tests/safetensors_smoke.rs
+  ai_agent 80-91
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1e439b0eabf05ddd90ef98876e582bdd456b5215",
+  "prompts": {},
+  "sessions": {
+    "s_14d3df6b4e9b86": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "1a94f1d8-d8fa-4d3a-9bfe-0db1ef434cec",
+        "model": "grok-4.6"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
