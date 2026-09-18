@@ -13,6 +13,15 @@ All notable changes to this project are documented in this file.
   crates: `[dependencies]` stays empty for this feature; the upstream
   `safetensors` crate, `serde_json`, and `corinth-canal` are not used. Does
   not include payload mmap or Hugging Face `config.json` policy.
+- **GGUF `ParseLimits` (RM-1358):** documented resource budgets for untrusted
+  GGUF headers — KV count, tensor count, string bytes, array work items,
+  tensor rank, and metadata bytes. File-declared `u64` sizes convert with
+  typed [`HostSizeField`] errors; exhausted budgets return
+  [`ParserError::LimitExceeded`] naming the limit. Alignment, tensor offsets,
+  element counts, and packed byte sizes use checked arithmetic. Default and
+  `mmap` readers share the same policy. Trusted callers override via
+  `load_gguf_with_limits` / `parse_bytes_with_limits` /
+  `load_gguf_mmap_with_limits` without changing default safety.
 - **Safetensors shard-index invariants ([RM-1360](https://linear.app/rpd-34/issue/RM-1360)):**
   index shard paths resolve relative to the checkpoint root; absolute paths
   and `..` traversal that would leave the root are rejected; existing paths
