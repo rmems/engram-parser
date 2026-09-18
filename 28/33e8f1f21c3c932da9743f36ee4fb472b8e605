@@ -1,0 +1,22 @@
+tests/gguf_limits.rs
+  s_14d3df6b4e9b86::t_195301a3b670c7 245-253,255-276,278-279,282-310
+  s_14d3df6b4e9b86::t_2009fbacf25042 280-281
+  s_14d3df6b4e9b86::t_307f68f86ce52c 277
+  s_14d3df6b4e9b86::t_dc2a9aa60dce93 254
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2833e8f1f21c3c932da9743f36ee4fb472b8e605",
+  "prompts": {},
+  "sessions": {
+    "s_14d3df6b4e9b86": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "1a94f1d8-d8fa-4d3a-9bfe-0db1ef434cec",
+        "model": "grok-4.6"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
