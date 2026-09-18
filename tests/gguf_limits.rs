@@ -242,6 +242,72 @@ fn u64_max_counts_and_strings_name_the_limit() {
     );
 }
 
+fn two_f32_tensors_at_relative_offset(offset: u64) -> Vec<u8> {
+    let mut out = gguf_header(2, 0);
+    for name in ["left", "right"] {
+        push_string(&mut out, name);
+        push_u32(&mut out, 1);
+        push_u64(&mut out, 1);
+        push_u32(&mut out, GGML_F32);
+        push_u64(&mut out, offset);
+    }
+    while !out.len().is_multiple_of(ALIGNMENT as usize) {
+        out.push(0);
+    }
+    out.extend_from_slice(&1.0f32.to_le_bytes());
+    out
+}
+
+#[test]
+fn relative_zero_cannot_expose_header_bytes() {
+    let bytes = one_tensor("w", vec![2]);
+    let layout = parse_bytes(bytes, "mem://rel0".into()).expect("parse");
+    let tensor = layout.tensor("w").expect("tensor");
+    let payload = layout.tensor_bytes(tensor).expect("payload");
+    assert_all(&[
+        (tensor.relative_offset == 0, "relative-zero"),
+        (
+            tensor.absolute_offset == layout.tensor_data_offset,
+            "absolute-at-data-section",
+        ),
+        (
+            tensor.absolute_offset >= layout.tensor_data_offset,
+            "not-before-data-section",
+        ),
+        (layout.bytes[..4] == GGUF_MAGIC, "header-magic-present"),
+        (!payload.starts_with(&GGUF_MAGIC), "payload-not-header"),
+        (
+            layout.bytes[..layout.tensor_data_offset].starts_with(&GGUF_MAGIC),
+            "metadata-keeps-header",
+        ),
+    ]);
+}
+
+#[test]
+fn overlapping_relative_offsets_stay_in_tensor_data() {
+    let bytes = two_f32_tensors_at_relative_offset(0);
+    let layout = parse_bytes(bytes, "mem://overlap".into()).expect("parse overlap");
+    let left = layout.tensor("left").expect("left");
+    let right = layout.tensor("right").expect("right");
+    let left_bytes = layout.tensor_bytes(left).expect("left payload");
+    let right_bytes = layout.tensor_bytes(right).expect("right payload");
+    assert_all(&[
+        (left.relative_offset == 0, "left-rel"),
+        (right.relative_offset == 0, "right-rel"),
+        (
+            left.absolute_offset == layout.tensor_data_offset,
+            "left-abs",
+        ),
+        (
+            right.absolute_offset == layout.tensor_data_offset,
+            "right-abs",
+        ),
+        (!left_bytes.starts_with(&GGUF_MAGIC), "left-not-header"),
+        (!right_bytes.starts_with(&GGUF_MAGIC), "right-not-header"),
+        (left_bytes == right_bytes, "shared-data-section-bytes"),
+    ]);
+}
+
 #[test]
 fn u64_max_relative_offset_cannot_wrap() {
     let mut out = gguf_header(1, 0);
