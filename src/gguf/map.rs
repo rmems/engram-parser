@@ -183,11 +183,27 @@ impl GgufLayoutMmap {
     }
 
     /// Compare directory metadata with an owned [`GgufLayout`] of the same file.
+    ///
+    /// Checks alignment, tensor-data offset, architecture, and every tensor's
+    /// name, shape, dtype, packed length, and offsets. Does not compare
+    /// payload bytes (callers that need that should use
+    /// [`Self::tensor_bytes`] against [`GgufLayout::tensor_bytes`]).
     pub fn directory_matches(&self, owned: &GgufLayout) -> bool {
         self.alignment == owned.alignment
             && self.tensor_data_offset == owned.tensor_data_offset
             && self.tensors.len() == owned.tensors.len()
             && self.metadata.architecture() == owned.metadata.architecture()
+            && self.tensors.iter().all(|(name, mapped)| {
+                owned.tensors.get(name).is_some_and(|owned_t| {
+                    mapped.dims == owned_t.dims
+                        && mapped.dtype == owned_t.dtype
+                        && mapped.ggml_type == owned_t.ggml_type
+                        && mapped.n_elements == owned_t.n_elements
+                        && mapped.byte_len == owned_t.byte_len
+                        && mapped.relative_offset == owned_t.relative_offset
+                        && mapped.absolute_offset == owned_t.absolute_offset
+                })
+            })
     }
 }
 

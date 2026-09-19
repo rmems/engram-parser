@@ -146,6 +146,7 @@ fn fail_closed_dequant(dtype: DType) -> ParserError {
 
 pub(crate) fn dequantize_row_q8_0(row: &[u8], width: usize) -> Result<Vec<f32>> {
     require_multiple(width, Q8_0_BLOCK, "Q8_0")?;
+    expect_row_len(row, width, Q8_0_BLOCK, Q8_0_BYTES, "Q8_0")?;
     let mut out = Vec::with_capacity(width);
     let (blocks, _) = row.as_chunks::<Q8_0_BYTES>();
     for block in blocks {
@@ -159,6 +160,7 @@ pub(crate) fn dequantize_row_q8_0(row: &[u8], width: usize) -> Result<Vec<f32>> 
 
 pub(crate) fn dequantize_row_q5_k(row: &[u8], width: usize) -> Result<Vec<f32>> {
     require_multiple(width, K_BLOCK, "Q5_K")?;
+    expect_row_len(row, width, K_BLOCK, Q5_K_BYTES, "Q5_K")?;
     let mut out = Vec::with_capacity(width);
     let (blocks, _) = row.as_chunks::<Q5_K_BYTES>();
     for block in blocks {
@@ -537,12 +539,17 @@ mod tests {
     fn dequant_error_paths() {
         assert!(dequantize_q8_0(&[0u8; 34], &[31]).is_err());
         assert!(dequantize_q8_0(&[0u8; 33], &[32]).is_err());
+        assert!(dequantize_row_q8_0(&[0u8; 33], 32).is_err());
+        assert!(dequantize_row_q5_k(&[0u8; 175], 256).is_err());
         assert!(dequantize_iq3_m(&[0u8; 111], &[255]).is_err());
         assert!(dequantize_iq3_m(&[0u8; 110], &[256]).is_err());
         assert!(dequantize_q5_k(&[0u8; 176], &[]).is_err());
         assert!(dequantize_q8_0(&[], &[0]).is_err());
         assert!(dequantize_packed(DType::F32, &[0u8; 4], &[1]).is_err());
         assert!(dequantize_packed(DType::Other(31), &[0u8; 18], &[32]).is_err());
+        assert!(dequantize_packed(DType::Q5_K, &[0u8; 176], &[256]).is_ok());
+        assert!(dequantize_packed(DType::Q6_K, &[0u8; 210], &[256]).is_ok());
+        assert!(dequantize_packed(DType::IQ3_M_BLOCK, &[0u8; 111], &[256]).is_ok());
     }
 
     #[test]
