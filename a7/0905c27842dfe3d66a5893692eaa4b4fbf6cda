@@ -1,0 +1,23 @@
+.github/workflows/release.yml
+  s_4127313880d409::t_177e459c0dff61 133
+.github/workflows/security.yml
+  s_4127313880d409::t_a32c3f7d287298 64
+  s_4127313880d409::t_aa4425b1d5b4a2 29
+  s_4127313880d409::t_3a6167c53b7389 33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a70905c27842dfe3d66a5893692eaa4b4fbf6cda",
+  "prompts": {},
+  "sessions": {
+    "s_4127313880d409": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "69a115c4-c26a-47c9-af7a-74d91d33578f",
+        "model": "composer-2.5"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
