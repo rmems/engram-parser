@@ -26,10 +26,11 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+  # Job-level `if` cannot reference secrets; gate Snyk jobs with repo variable SNYK_ENABLED=true.
   snyk-sca:
     name: Snyk SCA
     runs-on: ubuntu-latest
-    if: ${{ vars.SNYK_ENABLED == 'true' || secrets.SNYK_TOKEN != '' }}
+    if: ${{ vars.SNYK_ENABLED == 'true' }}
     env:
       SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
     steps:
@@ -60,7 +61,7 @@ jobs:
   snyk-code:
     name: Snyk Code (SAST)
     runs-on: ubuntu-latest
-    if: ${{ vars.SNYK_ENABLED == 'true' || secrets.SNYK_TOKEN != '' }}
+    if: ${{ vars.SNYK_ENABLED == 'true' }}
     env:
       SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
     steps:
