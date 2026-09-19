@@ -21,7 +21,11 @@ docs/superpowers/
 .vscode/
 *.swp
 *~
-.cursor/
+# Ignore AI tool local state (but track Cloud Agent environment config)
+.cursor/*
+!.cursor/environment.json
+!.cursor/Dockerfile
+!.cursor/install.sh
 .cursorignore
 .zed/
 
