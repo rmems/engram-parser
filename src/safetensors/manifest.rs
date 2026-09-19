@@ -13,7 +13,7 @@ use super::relative_path;
 use super::validate::{
     expected_tensor_byte_size, reject_output_checkpoint_conflict, reject_tensor_data_ranges,
 };
-use super::{io_error, model_load, unsupported};
+use super::{duplicate_tensor_ownership, io_error, model_load, unsupported};
 use crate::error::Result;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
@@ -24,6 +24,9 @@ pub(super) const SAFETENSORS_EXTENSION: &str = "safetensors";
 pub(super) const MAX_HEADER_BYTES: usize = 64 * 1024 * 1024;
 pub(super) const MAX_INDEX_BYTES: u64 = 64 * 1024 * 1024;
 /// Reserved index metadata key for shards present on disk but not in `weight_map`.
+/// Unreferenced shards are reported here rather than rejected. Missing referenced
+/// shards fail closed with [`crate::ParserError::MissingShard`] before a manifest
+/// is returned.
 pub const INDEX_UNREFERENCED_SHARDS_KEY: &str = "index:unreferenced_shards";
 /// Unambiguous boundary between shard relative path and logical metadata key in
 /// `shard:*` manifest keys (avoids ambiguity when the logical key contains `:`).
@@ -385,13 +388,14 @@ fn expert_group_json(group: &super::SafetensorsExpertGroup) -> JsonValue {
 pub(super) fn inspect_single_file(path: &Path) -> Result<SafetensorsManifest> {
     let root = parent_or_current(path);
     let shard = inspect_shard(path, root)?;
-    Ok(build_manifest(
+    build_manifest(
         "single_file",
         None,
         vec![path.to_path_buf()],
         shard.metadata,
         shard.tensors,
-    ))
+        path,
+    )
 }
 
 pub(super) fn inspect_directory(root: &Path) -> Result<SafetensorsManifest> {
@@ -462,18 +466,31 @@ pub(super) fn inspect_index_shards(
     index_tensor_count: usize,
     unreferenced_shards_json: Option<String>,
 ) -> Result<SafetensorsManifest> {
-    let mut tensors = Vec::new();
+    let tensor_owners = expected_tensor_owners(&expected_by_shard);
+    let mut inspections = Vec::new();
     for shard_path in &shards {
-        let expected = expected_by_shard.get(shard_path).ok_or_else(|| {
-            model_load(
+        if !expected_by_shard.contains_key(shard_path) {
+            return Err(model_load(
                 shard_path,
+                "internal error: index shard has no expected tensor set".into(),
+            ));
+        }
+        inspections.push((shard_path.clone(), inspect_shard(shard_path, root)?));
+    }
+
+    reject_indexed_tensor_ownership(root, &tensor_owners, &inspections)?;
+
+    let mut tensors = Vec::new();
+    for (shard_path, shard) in inspections {
+        let expected = expected_by_shard.get(&shard_path).ok_or_else(|| {
+            model_load(
+                &shard_path,
                 "internal error: index shard has no expected tensor set".into(),
             )
         })?;
-        let shard = inspect_shard(shard_path, root)?;
         merge_shard_metadata(
             &mut metadata,
-            &relative_path(shard_path, root),
+            &relative_path(&shard_path, root),
             shard.metadata,
         );
 
@@ -484,7 +501,7 @@ pub(super) fn inspect_index_shards(
             .collect::<BTreeSet<_>>();
         if let Some(missing) = expected.difference(&found).next() {
             return Err(model_load(
-                shard_path,
+                &shard_path,
                 format!(
                     "index maps tensor '{missing}' to this shard, but the shard header does not contain it"
                 ),
@@ -505,9 +522,7 @@ pub(super) fn inspect_index_shards(
         metadata.insert(INDEX_UNREFERENCED_SHARDS_KEY.into(), encoded);
     }
 
-    Ok(build_manifest(
-        "hf_index", index_file, shards, metadata, tensors,
-    ))
+    build_manifest("hf_index", index_file, shards, metadata, tensors, root)
 }
 
 pub(super) fn inspect_shards(
@@ -529,9 +544,64 @@ pub(super) fn inspect_shards(
         tensors.extend(shard.tensors);
     }
 
-    Ok(build_manifest(
-        input_kind, index_file, shards, metadata, tensors,
-    ))
+    build_manifest(input_kind, index_file, shards, metadata, tensors, root)
+}
+
+fn expected_tensor_owners(
+    expected_by_shard: &BTreeMap<PathBuf, BTreeSet<String>>,
+) -> BTreeMap<String, PathBuf> {
+    let mut owners = BTreeMap::new();
+    for (shard_path, names) in expected_by_shard {
+        for name in names {
+            owners.insert(name.clone(), shard_path.clone());
+        }
+    }
+    owners
+}
+
+fn reject_indexed_tensor_ownership(
+    root: &Path,
+    tensor_owners: &BTreeMap<String, PathBuf>,
+    inspections: &[(PathBuf, ShardInspection)],
+) -> Result<()> {
+    let mut found_in: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for (shard_path, shard) in inspections {
+        let relative = relative_path(shard_path, root);
+        for tensor in &shard.tensors {
+            if tensor_owners.contains_key(&tensor.name) {
+                found_in
+                    .entry(tensor.name.clone())
+                    .or_default()
+                    .insert(relative.clone());
+            }
+        }
+    }
+
+    for (name, expected_path) in tensor_owners {
+        let Some(owners) = found_in.get(name) else {
+            continue;
+        };
+        if owners.len() > 1 {
+            return Err(duplicate_tensor_ownership(
+                root,
+                name.clone(),
+                owners.iter().cloned().collect(),
+            ));
+        }
+        let expected_rel = relative_path(expected_path, root);
+        if !owners.contains(&expected_rel) {
+            return Err(duplicate_tensor_ownership(
+                root,
+                name.clone(),
+                owners
+                    .iter()
+                    .cloned()
+                    .chain(std::iter::once(expected_rel))
+                    .collect(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn build_manifest(
@@ -540,15 +610,17 @@ pub(super) fn build_manifest(
     shards: Vec<PathBuf>,
     metadata: BTreeMap<String, String>,
     mut tensors: Vec<SafetensorsTensorRecord>,
-) -> SafetensorsManifest {
+    error_path: &Path,
+) -> Result<SafetensorsManifest> {
     tensors.sort_by(|left, right| {
         left.name
             .cmp(&right.name)
             .then(left.source_shard.cmp(&right.source_shard))
     });
+    reject_duplicate_tensor_ownership(error_path, &tensors)?;
     let candidates = discover_candidates(&tensors);
 
-    SafetensorsManifest {
+    Ok(SafetensorsManifest {
         manifest_version: 2,
         format: "safetensors",
         checkpoint: SafetensorsCheckpointSource {
@@ -560,7 +632,28 @@ pub(super) fn build_manifest(
         },
         tensors,
         candidates,
+    })
+}
+
+fn reject_duplicate_tensor_ownership(
+    path: &Path,
+    tensors: &[SafetensorsTensorRecord],
+) -> Result<()> {
+    let mut owners: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+    for tensor in tensors {
+        owners
+            .entry(tensor.name.as_str())
+            .or_default()
+            .insert(tensor.source_shard.as_str());
     }
+    if let Some((name, shards)) = owners.into_iter().find(|(_, shards)| shards.len() > 1) {
+        return Err(duplicate_tensor_ownership(
+            path,
+            name,
+            shards.into_iter().map(str::to_string).collect(),
+        ));
+    }
+    Ok(())
 }
 
 pub(super) fn inspect_shard(path: &Path, root: &Path) -> Result<ShardInspection> {
@@ -805,6 +898,7 @@ pub(super) fn read_dir_paths(root: &Path) -> Result<Vec<PathBuf>> {
         let entry = entry.map_err(|e| model_load(root, format!("read directory entry: {e}")))?;
         paths.push(entry.path());
     }
+    paths.sort();
     Ok(paths)
 }
 

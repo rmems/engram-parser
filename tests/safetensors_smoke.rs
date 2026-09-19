@@ -77,3 +77,15 @@ fn fixture_manifest_write_is_byte_stable() {
     assert_eq!(first, second);
     assert!(first.starts_with("{\n  \"candidates\":"));
 }
+
+#[test]
+fn sharded_fixture_manifest_is_byte_stable() {
+    let path = fixture_root().join("sharded");
+    let first = inspect_safetensors_checkpoint(&path)
+        .expect("sharded fixture")
+        .to_pretty_json();
+    let second = inspect_safetensors_checkpoint(&path)
+        .expect("sharded fixture")
+        .to_pretty_json();
+    assert_eq!(first, second);
+}
