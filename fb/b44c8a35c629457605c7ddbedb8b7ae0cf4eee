@@ -1,0 +1,25 @@
+.cursor/install.sh
+  s_4127313880d409::t_64a586a935c89b 1-14
+.gitignore
+  s_4127313880d409::t_5cfd28a3b75951 24-28
+.cursor/environment.json
+  s_4127313880d409::t_e53407d911b5d0 1-9
+.cursor/Dockerfile
+  s_4127313880d409::t_2b66bf9164ab55 1-28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "fbb44c8a35c629457605c7ddbedb8b7ae0cf4eee",
+  "prompts": {},
+  "sessions": {
+    "s_4127313880d409": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "69a115c4-c26a-47c9-af7a-74d91d33578f",
+        "model": "composer-2.5"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
