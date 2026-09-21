@@ -10,6 +10,7 @@
 mod cursor;
 mod dequant;
 mod layout;
+mod limits;
 #[cfg(feature = "mmap")]
 mod map;
 mod tensor;
@@ -22,8 +23,12 @@ pub use dequant::{
     packed_row_size,
 };
 pub use layout::{GgufLayout, GgufMetadata};
+pub use limits::ParseLimits;
 #[cfg(feature = "mmap")]
-pub use map::{GgufLayoutMmap, PageAlignedTensorBytes, load_gguf_mmap, os_page_size};
+pub use map::{
+    GgufLayoutMmap, PageAlignedTensorBytes, load_gguf_mmap, load_gguf_mmap_with_limits,
+    os_page_size,
+};
 pub use tensor::{
     DType, GGML_TYPE_BF16, GGML_TYPE_F16, GGML_TYPE_F32, GGML_TYPE_F64, GGML_TYPE_I8,
     GGML_TYPE_I16, GGML_TYPE_I32, GGML_TYPE_I64, GGML_TYPE_IQ1_M, GGML_TYPE_IQ1_S, GGML_TYPE_IQ2_S,
@@ -51,20 +56,38 @@ use crate::error::{ParserError, Result};
 /// default builds stay zero-dep). For multi-GB checkpoints enable the
 /// `mmap` feature and use `load_gguf_mmap`. Tensor payloads remain
 /// available as raw byte slices via [`GgufLayout::tensor_bytes`].
+///
+/// Uses [`ParseLimits::default`]. Trusted callers can raise budgets with
+/// [`load_gguf_with_limits`].
 pub fn load_gguf<P: AsRef<Path>>(path: P) -> Result<GgufLayout> {
+    load_gguf_with_limits(path, ParseLimits::default())
+}
+
+/// Load a `.gguf` checkpoint with an explicit [`ParseLimits`] policy.
+pub fn load_gguf_with_limits<P: AsRef<Path>>(path: P, limits: ParseLimits) -> Result<GgufLayout> {
     let path_ref = path.as_ref();
     let path_str = path_ref.display().to_string();
     let bytes = fs::read(path_ref).map_err(|e| ParserError::Io {
         path: path_str.clone(),
         source: e,
     })?;
-    parse_bytes(bytes, path_str)
+    parse_bytes_with_limits(bytes, path_str, limits)
 }
 
 /// Parse an already-loaded byte buffer as a GGUF checkpoint. Useful for
-/// unit tests and in-memory round-trips.
+/// unit tests and in-memory round-trips. Uses [`ParseLimits::default`].
 pub fn parse_bytes(bytes: Vec<u8>, path: String) -> Result<GgufLayout> {
-    let (metadata, tensors, alignment, tensor_data_offset) = layout::parse_layout(&bytes, &path)?;
+    parse_bytes_with_limits(bytes, path, ParseLimits::default())
+}
+
+/// Parse an already-loaded byte buffer with an explicit [`ParseLimits`] policy.
+pub fn parse_bytes_with_limits(
+    bytes: Vec<u8>,
+    path: String,
+    limits: ParseLimits,
+) -> Result<GgufLayout> {
+    let (metadata, tensors, alignment, tensor_data_offset) =
+        layout::parse_layout(&bytes, &path, limits)?;
     Ok(GgufLayout {
         path,
         metadata,

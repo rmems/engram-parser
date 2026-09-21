@@ -15,6 +15,7 @@ use std::path::Path;
 use memmap2::{Mmap, MmapOptions};
 
 use super::layout::{GgufLayout, GgufMetadata, parse_layout, tensor_payload_bytes};
+use super::limits::ParseLimits;
 use super::tensor::Tensor;
 use crate::error::{ParserError, Result};
 
@@ -80,6 +81,16 @@ impl<'a> PageAlignedTensorBytes<'a> {
 /// Requires the `mmap` cargo feature (`memmap2`). The default
 /// [`super::load_gguf`] path is unchanged.
 pub fn load_gguf_mmap<P: AsRef<Path>>(path: P) -> Result<GgufLayoutMmap> {
+    load_gguf_mmap_with_limits(path, ParseLimits::default())
+}
+
+/// Memory-map a `.gguf` file with an explicit [`ParseLimits`] policy.
+///
+/// Default and mmap readers apply equivalent limits for the same input.
+pub fn load_gguf_mmap_with_limits<P: AsRef<Path>>(
+    path: P,
+    limits: ParseLimits,
+) -> Result<GgufLayoutMmap> {
     let path_ref = path.as_ref();
     let path_str = path_ref.display().to_string();
     let file = File::open(path_ref).map_err(|e| ParserError::Io {
@@ -94,7 +105,8 @@ pub fn load_gguf_mmap<P: AsRef<Path>>(path: P) -> Result<GgufLayoutMmap> {
         path: path_str.clone(),
         source: e,
     })?;
-    let (metadata, tensors, alignment, tensor_data_offset) = parse_layout(&mmap, &path_str)?;
+    let (metadata, tensors, alignment, tensor_data_offset) =
+        parse_layout(&mmap, &path_str, limits)?;
     Ok(GgufLayoutMmap {
         path: path_str,
         metadata,
