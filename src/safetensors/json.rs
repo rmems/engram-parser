@@ -172,7 +172,7 @@ impl<'a> JsonParser<'a> {
 
     fn skip_whitespace(&mut self) {
         while let Some(c) = self.peek() {
-            if c.is_whitespace() {
+            if matches!(c, ' ' | '\t' | '\n' | '\r') {
                 self.bump();
             } else {
                 break;
@@ -253,10 +253,7 @@ impl<'a> JsonParser<'a> {
                         'r' => s.push('\r'),
                         't' => s.push('\t'),
                         'u' => {
-                            let code = self.parse_unicode_escape()?;
-                            let ch = char::from_u32(code)
-                                .ok_or_else(|| self.error("invalid unicode escape"))?;
-                            s.push(ch);
+                            s.push(self.parse_escaped_unicode_scalar()?);
                         }
                         _ => {
                             return Err(
@@ -283,6 +280,25 @@ impl<'a> JsonParser<'a> {
             code = code * 16 + digit;
         }
         Ok(code)
+    }
+
+    fn parse_escaped_unicode_scalar(&mut self) -> Result<char> {
+        let high = self.parse_unicode_escape()?;
+        let code = match high {
+            0xD800..=0xDBFF => {
+                if self.next_char()? != '\\' || self.next_char()? != 'u' {
+                    return Err(self.error("invalid unicode surrogate pair"));
+                }
+                let low = self.parse_unicode_escape()?;
+                if !(0xDC00..=0xDFFF).contains(&low) {
+                    return Err(self.error("invalid unicode surrogate pair"));
+                }
+                0x10000 + ((high - 0xD800) << 10) + (low - 0xDC00)
+            }
+            0xDC00..=0xDFFF => return Err(self.error("invalid unicode surrogate pair")),
+            _ => high,
+        };
+        char::from_u32(code).ok_or_else(|| self.error("invalid unicode escape"))
     }
 
     fn parse_object(&mut self) -> Result<JsonValue> {
@@ -612,6 +628,60 @@ mod tests {
         assert_eq!(
             obj.get("key").unwrap().as_str().unwrap(),
             "value with \"quotes\" and \\backslash"
+        );
+    }
+
+    #[test]
+    fn decodes_surrogate_pairs_in_keys_and_values_and_round_trips() {
+        let value = parse_json(r#"{"\uD83D\uDE00":"\uD834\uDD1E"}"#, "test").unwrap();
+        let object = value.as_object().unwrap();
+        assert_eq!(object.get("😀").and_then(JsonValue::as_str), Some("𝄞"));
+
+        let encoded = encode_compact(&value);
+        assert_eq!(parse_json(&encoded, "test").unwrap(), value);
+    }
+
+    #[test]
+    fn rejects_invalid_unicode_surrogates_and_escapes() {
+        for json in [
+            r#""\uD83D""#,
+            r#""\uDE00""#,
+            r#""\uDE00\uD83D""#,
+            r#""\uD83D\u0041""#,
+            r#""\uD83Dx""#,
+            r#""\uD83D\uDE0""#,
+            r#""\uD83D\xDE00""#,
+            r#""\u12xz""#,
+        ] {
+            assert!(parse_json(json, "test").is_err(), "accepted {json:?}");
+        }
+    }
+
+    #[test]
+    fn duplicate_keys_are_rejected_after_surrogate_decoding() {
+        let err = parse_json(r#"{"😀":1,"\uD83D\uDE00":2}"#, "test").unwrap_err();
+        assert!(err.to_string().contains("duplicate JSON key"));
+    }
+
+    #[test]
+    fn accepts_only_rfc_8259_structural_whitespace() {
+        let value = parse_json(" \t\n\r{\r\n\t\"key\" : 1 } ", "test").unwrap();
+        assert_eq!(value.as_object().unwrap()["key"].as_u64(), Some(1));
+
+        for whitespace in ['\u{00a0}', '\u{1680}', '\u{2003}', '\u{2028}', '\u{3000}'] {
+            let json = format!("{{{whitespace}\"key\": 1}}");
+            assert!(
+                parse_json(&json, "test").is_err(),
+                "accepted U+{:04X}",
+                whitespace as u32
+            );
+        }
+
+        let json = "{\"key\":\"before\u{00a0}after\"}";
+        let value = parse_json(json, "test").unwrap();
+        assert_eq!(
+            value.as_object().unwrap()["key"].as_str(),
+            Some("before\u{00a0}after")
         );
     }
 
