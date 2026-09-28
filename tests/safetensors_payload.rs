@@ -238,6 +238,78 @@ fn non_utf8_shard_filename_resolves() {
 }
 
 #[test]
+fn concurrent_reads_do_not_mix_payloads() {
+    let dir = temp_dir("concurrent");
+    let path = dir.0.join("model.safetensors");
+    write_safetensors(
+        &path,
+        r#"{"a":{"dtype":"U8","shape":[4],"data_offsets":[0,4]},"b":{"dtype":"U8","shape":[4],"data_offsets":[4,8]}}"#,
+        &[1, 1, 1, 1, 2, 2, 2, 2],
+    );
+
+    let checkpoint = std::sync::Arc::new(open_safetensors_checkpoint(&path).unwrap());
+    let mut handles = Vec::new();
+    for (name, expected) in [("a", vec![1u8; 4]), ("b", vec![2u8; 4])] {
+        let checkpoint = std::sync::Arc::clone(&checkpoint);
+        handles.push(std::thread::spawn(move || {
+            for _ in 0..64 {
+                assert_eq!(checkpoint.tensor_bytes(name).unwrap(), expected);
+            }
+        }));
+    }
+    for handle in handles {
+        handle.join().unwrap();
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn unrelated_escape_symlink_does_not_block_single_file() {
+    use std::os::unix::fs::symlink;
+
+    let dir = temp_dir("unrelated-symlink");
+    let outside = temp_dir("outside");
+    let shard = dir.0.join("model.safetensors");
+    write_safetensors(
+        &shard,
+        r#"{"w":{"dtype":"U8","shape":[2],"data_offsets":[0,2]}}"#,
+        &[3, 4],
+    );
+    // An unrelated shard symlink escaping the root must not affect
+    // opening a different, explicitly selected file.
+    symlink(
+        outside.0.join("elsewhere.safetensors"),
+        dir.0.join("other.safetensors"),
+    )
+    .unwrap();
+
+    let checkpoint = open_safetensors_checkpoint(&shard).unwrap();
+    assert_eq!(checkpoint.tensor_bytes("w").unwrap(), vec![3, 4]);
+}
+
+#[cfg(unix)]
+#[test]
+fn colliding_lossy_shard_names_are_rejected() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let dir = temp_dir("lossy-collision");
+    // Both names lossy-map to "model-?.safetensors".
+    write_safetensors(
+        &dir.0.join(OsStr::from_bytes(b"model-\xff.safetensors")),
+        r#"{"a":{"dtype":"U8","shape":[2],"data_offsets":[0,2]}}"#,
+        &[1, 1],
+    );
+    write_safetensors(
+        &dir.0.join(OsStr::from_bytes(b"model-\xfe.safetensors")),
+        r#"{"b":{"dtype":"U8","shape":[2],"data_offsets":[0,2]}}"#,
+        &[2, 2],
+    );
+
+    assert!(open_safetensors_checkpoint(&dir.0).is_err());
+}
+
+#[test]
 fn offsets_beyond_eof_are_rejected() {
     let dir = temp_dir("beyond-eof");
     let path = dir.0.join("model.safetensors");

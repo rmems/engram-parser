@@ -66,6 +66,9 @@ pub fn open_safetensors_checkpoint_mmap(
         // not truncate the file for the lifetime of the returned
         // checkpoint (standard mmap invariant). This crate never
         // host-registers the mapping.
+        let file = file
+            .into_inner()
+            .unwrap_or_else(|poison| poison.into_inner());
         let mmap =
             unsafe { MmapOptions::new().map(&file) }.map_err(|e| io_error(&shard_path, e))?;
         // Canonical validation by the upstream crate: header structure,

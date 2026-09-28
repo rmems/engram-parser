@@ -6,14 +6,17 @@ Aligned with `.github/workflows/ci.yml` and the README Development section.
 **Charter:** pure-Rust, **zero-dependency by default** checkpoint parse + MoE
 raw expert extract — GGUF v3 plus packed K-quant dequant (Q8_0 / Q5_K / Q6_K /
 IQ3_M block). Optional `mmap` feature (#45) adds `memmap2` (`load_gguf_mmap`).
-Safetensors **headers** ship behind an off-by-default `safetensors` feature
-(#10: manifest + candidate discovery only, no payload mmap, no extra crates).
+Safetensors ships behind an off-by-default `safetensors` feature (#10 +
+#86/RM-1783: manifest + candidate discovery + raw payload reads, with
+borrowed mmap-backed payload slices under `safetensors` + `mmap`). The
+feature pulls the upstream `safetensors` crate for canonical shard
+validation; default builds stay zero-dep.
 **No CUDA or GGML compute** in this repo. GGUF on-wire `ggml_type` codes are
 labels + packed sizes; wire 31 is `Q4_0_4_4`, not IQ3_M.
 
 | Repo | Role |
 |------|------|
-| **engram-parser** (this) | GGUF parse + inventory + raw expert bytes + optional mmap/K-quant dequant; safetensors header/manifest/discovery (feature-gated — #10) |
+| **engram-parser** (this) | GGUF parse + inventory + raw expert bytes + optional mmap/K-quant dequant; safetensors header/manifest/discovery + raw payload access (feature-gated — #10, #86) |
 | **myelin-accelerator** | Production CUDA kernels / FFI (`~/Limen-Neural/myelin-accelerator`) |
 | **blackwell-kernel-lab** | Scratch GPU experiments / real-model pipelines (`~/rmems/blackwell-kernel-lab`) |
 
@@ -121,8 +124,8 @@ There is no `rustfmt.toml` in this repo; defaults are fine.
 | `fmt` (apply) | `cargo fmt` | Rewrites sources to rustfmt style (silent if already clean) |
 | `fmt` (CI) | `cargo fmt --check` | Style matches rustfmt; fails with a diff if not |
 | `clippy` | `cargo clippy --all-targets --all-features -- -D warnings` | No Clippy warnings on lib + tests |
-| `build` (all features) | `cargo build --all-features` | Crate builds with every declared feature; `[features]` is still empty, so today this equals the default build. Becomes meaningful when `safetensors` lands (#10) |
-| `build` (default) | `cargo build` | **Default build stays GGUF-only and dep-free** — will matter once `safetensors` exists; not yet a CI job, see #10 |
+| `build` (all features) | `cargo build --all-features` | Crate builds with every declared feature (`safetensors`, `mmap`) |
+| `build` (default) | `cargo build` | **Default build stays dep-free** — must keep passing now that `safetensors`/`mmap` exist |
 | `test` | `cargo test --all-features` | Unit (`src/gguf/tensor.rs`), smoke (`tests/gguf_smoke.rs`), doctests |
 | `clean-tree` | `git status --porcelain` empty | No stray outputs after build/test |
 | `coverage` (opt) | `cargo llvm-cov --all-targets --all-features --locked --lcov --output-path lcov.info` | LCOV for Codecov (CI installs `cargo-llvm-cov`) |
@@ -350,7 +353,7 @@ cargo run --locked --example benchmark --profile bench --features bench,cuda
 |------|------------------|
 | CUDA / PTX / Nsight / real-model GPU benches | **blackwell-kernel-lab** (experiments) or myelin-accelerator |
 | Row dequant / mmap host load | corinth-canal (reference) or downstream |
-| Safetensors **payload** mmap load + HF `config.json` | corinth-canal (reference) — only the header/manifest/discovery half is ported here, see #10 |
+| HF `config.json` policy | corinth-canal (reference) — not ported here, see #10 |
 | Routing / MoE matmul / generation | cortex-tensor / hybrid stack |
 | Optional myelin dep on this crate | **Never** — keeps zero-dep charter |
 
@@ -365,7 +368,7 @@ cargo run --locked --example benchmark --profile bench --features bench,cuda
 | Security audit / Snyk | `.github/workflows/security.yml` (not required for every local edit) |
 | Docker image | `Dockerfile` (`ARG RUST_VERSION=1.97.1`) + `.github/workflows/docker-build.yml` |
 | T1 real GGUF / T2 GPU | **Not in CI** — local pilots only |
-| Default-feature build (`cargo build`, no features) | **No workflow job yet** — every feature-sensitive CI step (`clippy`, `build`, `test`, `llvm-cov`) passes `--all-features`; only `cargo fmt --check` is feature-agnostic. Once `safetensors` lands (#10), a `#[cfg(feature = "safetensors")]` mistake that breaks the default build would ship green |
+| Default-feature build (`cargo build`, no features) | **No workflow job yet** — every feature-sensitive CI step (`clippy`, `build`, `test`, `llvm-cov`) passes `--all-features`; only `cargo fmt --check` is feature-agnostic. A `#[cfg(feature = "safetensors")]`/`mmap` mistake that breaks the default build would ship green |
 
 **Yes, the GitHub workflow is part of a Rust version bump:** keep `validate` on
 `stable` (auto-tracks latest), and update the `msrv` job + `Cargo.toml`

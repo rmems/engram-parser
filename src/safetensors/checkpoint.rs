@@ -12,9 +12,10 @@
 //! canonical header validation where a whole shard buffer is available
 //! (the `mmap` backend in `map.rs`).
 
+use super::json::parse_json_rejecting_duplicate_keys;
 use super::manifest::{
     MAX_HEADER_BYTES, SafetensorsManifest, SafetensorsTensorRecord, inspect_safetensors_checkpoint,
-    list_safetensors_files,
+    list_safetensors_files, parse_header,
 };
 use super::paths::parent_or_current;
 use super::{io_error, model_load, relative_path};
@@ -23,6 +24,7 @@ use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 /// One shard resolved from a checkpoint manifest.
 #[derive(Debug)]
@@ -32,8 +34,10 @@ pub(super) struct ResolvedShard {
     /// Absolute shard path under the checkpoint root.
     pub(super) path: PathBuf,
     /// Handle opened at checkpoint-open time; keeps reads pinned to the
-    /// inspected inode even if the path is later replaced.
-    pub(super) file: File,
+    /// inspected inode even if the path is later replaced. Locked around
+    /// each seek+read so concurrent `tensor_bytes` calls cannot
+    /// interleave on the shared file offset.
+    pub(super) file: Mutex<File>,
     /// Absolute byte offset of the data section (`8 + header_len`).
     pub(super) data_begin: u64,
 }
@@ -114,8 +118,8 @@ impl SafetensorsCheckpoint {
         let shard = self.shard_for(tensor)?;
         let mut file = shard
             .file
-            .try_clone()
-            .map_err(|e| io_error(&shard.path, e))?;
+            .lock()
+            .map_err(|_| model_load(&shard.path, "shard read lock poisoned".to_string()))?;
         let mut bytes = vec![0u8; tensor.byte_size];
         // `data_offsets` were validated against this shard's data
         // section at open (`end <= data_len`), so the sum is bounded by
@@ -167,13 +171,6 @@ pub(super) fn resolve_checkpoint_shards(
         parent_or_current(path).to_path_buf()
     };
 
-    // Manifest `source_shard` strings are lossy; recover the real
-    // discovered `PathBuf` so non-UTF-8 shard names still resolve.
-    let discovered: BTreeMap<String, PathBuf> = list_safetensors_files(&root)?
-        .into_iter()
-        .map(|path| (relative_path(&path, &root), path))
-        .collect();
-
     let mut shard_paths: Vec<String> = manifest
         .tensors
         .iter()
@@ -182,23 +179,114 @@ pub(super) fn resolve_checkpoint_shards(
     shard_paths.sort();
     shard_paths.dedup();
 
+    // Manifest `source_shard` strings are lossy. Only when a required
+    // relative path does not exist verbatim (non-UTF-8 names) scan the
+    // directory to recover the real `PathBuf`; unrelated directory
+    // entries must not affect single-file or index opens. A lossy name
+    // matching two distinct files is ambiguous and rejected.
+    let mut discovered: Option<BTreeMap<String, Vec<PathBuf>>> = None;
+
     shard_paths
         .into_iter()
         .map(|relative| {
-            let shard_path = discovered
-                .get(&relative)
-                .cloned()
-                .unwrap_or_else(|| root.join(&relative));
+            let direct = root.join(&relative);
+            let shard_path = if direct.exists() {
+                direct
+            } else {
+                let map = match &mut discovered {
+                    Some(map) => map,
+                    None => {
+                        let mut map: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
+                        for path in list_safetensors_files(&root)? {
+                            map.entry(relative_path(&path, &root))
+                                .or_default()
+                                .push(path);
+                        }
+                        discovered.insert(map)
+                    }
+                };
+                match map.get(&relative) {
+                    Some(paths) if paths.len() == 1 => paths[0].clone(),
+                    Some(paths) => {
+                        return Err(model_load(
+                            &root,
+                            format!(
+                                "shard name '{relative}' is ambiguous across {} discovered files",
+                                paths.len()
+                            ),
+                        ));
+                    }
+                    None => direct,
+                }
+            };
             let mut file = File::open(&shard_path).map_err(|e| io_error(&shard_path, e))?;
             let data_begin = shard_data_begin(&shard_path, &mut file)?;
+            verify_shard_header(
+                &shard_path,
+                &root,
+                &mut file,
+                data_begin,
+                &relative,
+                manifest,
+            )?;
             Ok(ResolvedShard {
                 relative,
                 path: shard_path,
-                file,
+                file: Mutex::new(file),
                 data_begin,
             })
         })
         .collect()
+}
+
+/// Re-parse the shard header on the retained handle and require its
+/// tensor table to match the manifest exactly. The file may have been
+/// replaced between `inspect_safetensors_checkpoint` and resolution;
+/// checking on this descriptor guarantees the payload reads below use
+/// the same inode that was re-validated.
+fn verify_shard_header(
+    path: &Path,
+    root: &Path,
+    file: &mut File,
+    data_begin: u64,
+    relative: &str,
+    manifest: &SafetensorsManifest,
+) -> Result<()> {
+    let file_len = file.metadata().map_err(|e| io_error(path, e))?.len();
+    let header_len = data_begin - 8;
+    // `file` is positioned right after the 8-byte length prefix.
+    let mut header_bytes = vec![0u8; usize::try_from(header_len).unwrap_or(usize::MAX)];
+    file.read_exact(&mut header_bytes)
+        .map_err(|e| model_load(path, format!("read Safetensors header: {e}")))?;
+    let header = parse_json_rejecting_duplicate_keys(&header_bytes, path, "Safetensors header")?;
+    let reinspected = parse_header(path, root, file_len, header_len, header)?;
+
+    type TensorSignature<'a> = (&'a str, &'a str, &'a [usize], usize, [usize; 2]);
+    fn signature(tensor: &SafetensorsTensorRecord) -> TensorSignature<'_> {
+        (
+            tensor.name.as_str(),
+            tensor.dtype.as_str(),
+            tensor.shape.as_slice(),
+            tensor.byte_size,
+            tensor.data_offsets,
+        )
+    }
+    let mut expected: Vec<_> = manifest
+        .tensors
+        .iter()
+        .filter(|tensor| tensor.source_shard == relative)
+        .map(signature)
+        .collect();
+    expected.sort();
+    let mut actual: Vec<_> = reinspected.tensors.iter().map(signature).collect();
+    actual.sort();
+    if expected != actual {
+        return Err(model_load(
+            path,
+            "shard header changed since manifest inspection; reopen the checkpoint".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 /// Absolute offset of the data section: `8 + header_len`, validated
