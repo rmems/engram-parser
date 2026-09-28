@@ -11,7 +11,7 @@
 //! plus durable offsets, avoiding a self-referential borrow. Upstream
 //! types never appear in the public API.
 
-use super::checkpoint::{ResolvedShard, resolve_checkpoint_shards, shard_data_begin};
+use super::checkpoint::{ResolvedShard, resolve_checkpoint_shards};
 use super::manifest::{
     SafetensorsManifest, SafetensorsTensorRecord, inspect_safetensors_checkpoint,
 };
@@ -19,7 +19,6 @@ use super::{io_error, model_load};
 use crate::error::{ParserError, Result};
 use memmap2::{Mmap, MmapOptions};
 use std::collections::BTreeMap;
-use std::fs::File;
 use std::path::Path;
 
 /// A Safetensors checkpoint backed by read-only shard mappings.
@@ -58,14 +57,15 @@ pub fn open_safetensors_checkpoint_mmap(
     for ResolvedShard {
         relative,
         path: shard_path,
-        ..
+        file,
+        data_begin,
     } in resolved
     {
-        let file = File::open(&shard_path).map_err(|e| io_error(&shard_path, e))?;
-        // SAFETY: `file` is a readable regular-file descriptor and the
-        // mapping is read-only. Callers must not truncate the file for
-        // the lifetime of the returned checkpoint (standard mmap
-        // invariant). This crate never host-registers the mapping.
+        // SAFETY: `file` is a readable regular-file descriptor opened at
+        // checkpoint-open time and the mapping is read-only. Callers must
+        // not truncate the file for the lifetime of the returned
+        // checkpoint (standard mmap invariant). This crate never
+        // host-registers the mapping.
         let mmap =
             unsafe { MmapOptions::new().map(&file) }.map_err(|e| io_error(&shard_path, e))?;
         // Canonical validation by the upstream crate: header structure,
@@ -88,7 +88,7 @@ pub fn open_safetensors_checkpoint_mmap(
                 ));
             }
         }
-        let data_begin = usize::try_from(shard_data_begin(&shard_path)?).map_err(|_| {
+        let data_begin = usize::try_from(data_begin).map_err(|_| {
             model_load(
                 &shard_path,
                 "Safetensors data offset does not fit in usize".to_string(),

@@ -14,9 +14,10 @@
 
 use super::manifest::{
     MAX_HEADER_BYTES, SafetensorsManifest, SafetensorsTensorRecord, inspect_safetensors_checkpoint,
+    list_safetensors_files,
 };
 use super::paths::parent_or_current;
-use super::{io_error, model_load};
+use super::{io_error, model_load, relative_path};
 use crate::error::{ParserError, Result};
 use std::collections::BTreeMap;
 use std::fs::{self, File};
@@ -24,12 +25,15 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 /// One shard resolved from a checkpoint manifest.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(super) struct ResolvedShard {
     /// Checkpoint-relative shard path (matches `source_shard`).
     pub(super) relative: String,
     /// Absolute shard path under the checkpoint root.
     pub(super) path: PathBuf,
+    /// Handle opened at checkpoint-open time; keeps reads pinned to the
+    /// inspected inode even if the path is later replaced.
+    pub(super) file: File,
     /// Absolute byte offset of the data section (`8 + header_len`).
     pub(super) data_begin: u64,
 }
@@ -50,7 +54,13 @@ pub struct SafetensorsCheckpoint {
 
 /// Open a Safetensors file, shard index, or directory for raw payload
 /// reads. Discovery and validation are identical to
-/// [`inspect_safetensors_checkpoint`].
+/// [`inspect_safetensors_checkpoint`]: headers are checked by engram's
+/// fail-closed parser (duplicate-key rejection, contiguous
+/// `data_offsets`, dtype/shape byte sizes). Upstream-crate canonical
+/// validation runs per shard in the `mmap` backend
+/// ([`super::map`]) — upstream `SafeTensors::read_metadata` requires a
+/// whole-shard buffer, so it cannot run here without breaking the
+/// bounded-memory contract.
 pub fn open_safetensors_checkpoint(path: impl AsRef<Path>) -> Result<SafetensorsCheckpoint> {
     let manifest = inspect_safetensors_checkpoint(path.as_ref())?;
     let shards = resolve_checkpoint_shards(path.as_ref(), &manifest)?;
@@ -103,7 +113,10 @@ impl SafetensorsCheckpoint {
     pub fn tensor_bytes(&self, name: &str) -> Result<Vec<u8>> {
         let tensor = self.tensor(name)?;
         let shard = self.shard_for(tensor)?;
-        let mut file = File::open(&shard.path).map_err(|e| io_error(&shard.path, e))?;
+        let mut file = shard
+            .file
+            .try_clone()
+            .map_err(|e| io_error(&shard.path, e))?;
         let mut bytes = vec![0u8; tensor.byte_size];
         let start = shard
             .data_begin
@@ -160,6 +173,13 @@ pub(super) fn resolve_checkpoint_shards(
         parent_or_current(path).to_path_buf()
     };
 
+    // Manifest `source_shard` strings are lossy; recover the real
+    // discovered `PathBuf` so non-UTF-8 shard names still resolve.
+    let discovered: BTreeMap<String, PathBuf> = list_safetensors_files(&root)?
+        .into_iter()
+        .map(|path| (relative_path(&path, &root), path))
+        .collect();
+
     let mut shard_paths: Vec<String> = manifest
         .tensors
         .iter()
@@ -171,11 +191,16 @@ pub(super) fn resolve_checkpoint_shards(
     shard_paths
         .into_iter()
         .map(|relative| {
-            let shard_path = root.join(&relative);
-            let data_begin = shard_data_begin(&shard_path)?;
+            let shard_path = discovered
+                .get(&relative)
+                .cloned()
+                .unwrap_or_else(|| root.join(&relative));
+            let mut file = File::open(&shard_path).map_err(|e| io_error(&shard_path, e))?;
+            let data_begin = shard_data_begin(&shard_path, &mut file)?;
             Ok(ResolvedShard {
                 relative,
                 path: shard_path,
+                file,
                 data_begin,
             })
         })
@@ -184,8 +209,7 @@ pub(super) fn resolve_checkpoint_shards(
 
 /// Absolute offset of the data section: `8 + header_len`, validated
 /// against the header-size cap and the file length.
-pub(super) fn shard_data_begin(path: &Path) -> Result<u64> {
-    let mut file = File::open(path).map_err(|e| io_error(path, e))?;
+pub(super) fn shard_data_begin(path: &Path, file: &mut File) -> Result<u64> {
     let file_len = file.metadata().map_err(|e| io_error(path, e))?.len();
     let mut len_bytes = [0u8; 8];
     file.read_exact(&mut len_bytes)

@@ -195,6 +195,49 @@ fn reversed_offsets_are_rejected() {
 }
 
 #[test]
+fn reads_stay_pinned_when_shard_path_is_replaced() {
+    let dir = temp_dir("replaced-shard");
+    let shard = dir.0.join("model.safetensors");
+    write_safetensors(
+        &shard,
+        r#"{"w":{"dtype":"U8","shape":[4],"data_offsets":[0,4]}}"#,
+        &[1, 2, 3, 4],
+    );
+
+    let checkpoint = open_safetensors_checkpoint(&shard).unwrap();
+
+    // Atomically replace the shard after open: reads must keep returning
+    // the bytes of the file that was actually inspected.
+    let replacement = dir.0.join("replacement.safetensors");
+    write_safetensors(
+        &replacement,
+        r#"{"w":{"dtype":"U8","shape":[4],"data_offsets":[0,4]}}"#,
+        &[9, 9, 9, 9],
+    );
+    fs::rename(&replacement, &shard).unwrap();
+
+    assert_eq!(checkpoint.tensor_bytes("w").unwrap(), vec![1, 2, 3, 4]);
+}
+
+#[cfg(unix)]
+#[test]
+fn non_utf8_shard_filename_resolves() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let dir = temp_dir("non-utf8");
+    let name = OsStr::from_bytes(b"model-\xff.safetensors");
+    write_safetensors(
+        &dir.0.join(name),
+        r#"{"w":{"dtype":"U8","shape":[2],"data_offsets":[0,2]}}"#,
+        &[6, 7],
+    );
+
+    let checkpoint = open_safetensors_checkpoint(&dir.0).unwrap();
+    assert_eq!(checkpoint.tensor_bytes("w").unwrap(), vec![6, 7]);
+}
+
+#[test]
 fn offsets_beyond_eof_are_rejected() {
     let dir = temp_dir("beyond-eof");
     let path = dir.0.join("model.safetensors");
