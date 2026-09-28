@@ -19,7 +19,9 @@ All notable changes to this project are documented in this file.
   to real raw bytes via `resolve_tensor_bytes`/`tensor_bytes`. Upstream
   `SafeTensors`/`TensorView`/`Dtype` types are not part of the public
   API; discovery, shard path policy, duplicate-key detection, and
-  contiguous-range validation remain engram-owned.
+  contiguous-range validation remain engram-owned. Each shard header is
+  revalidated against the manifest on the file handle retained at open,
+  and reads pin to that handle under a lock.
 - **Safetensors feature (`#10`):** off-by-default `safetensors` cargo feature
   for header-only inspection, deterministic manifests, single-file / Hugging
   Face shard-index / directory layouts, and MoE router/expert candidate
