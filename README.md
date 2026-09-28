@@ -5,9 +5,9 @@
 
 Pure-Rust **checkpoint metadata parsing and Mixture-of-Experts extraction**.
 
-Today, `engram-parser` ships GGUF v3 deserialization, per-expert raw-weight extraction, packed K-quant dequant (Q8_0 / Q5_K / Q6_K / IQ3_M block layout), and an optional `mmap` reader. Safetensors **header/manifest/MoE-discovery support ships behind the off-by-default `safetensors` Cargo feature**, promoted from the `corinth-canal` reference implementation.
+Today, `engram-parser` ships GGUF v3 deserialization, per-expert raw-weight extraction, packed K-quant dequant (Q8_0 / Q5_K / Q6_K / IQ3_M block layout), and an optional `mmap` reader. Safetensors support — header/manifest/MoE discovery plus raw tensor payload access — ships behind the off-by-default `safetensors` Cargo feature, which uses the upstream `safetensors` crate for canonical validation.
 
-> **Safetensors status:** shipped behind `--features safetensors`. Default builds remain GGUF-only. The feature is header/manifest/discovery only — no payload mmap and no Hugging Face `config.json` policy. Tracked in [#10](https://github.com/rmems/engram-parser/issues/10).
+> **Safetensors status:** shipped behind `--features safetensors`. Default builds remain GGUF-only. Raw payload reads are bounded per-tensor; enable `--features safetensors,mmap` for borrowed mmap-backed access. No Hugging Face `config.json` policy. Tracked in [#10](https://github.com/rmems/engram-parser/issues/10) and [#86](https://github.com/rmems/engram-parser/issues/86).
 >
 > **mmap / K-quant status:** shipped. Default `load_gguf` still uses `fs::read`. Enable `--features mmap` for `load_gguf_mmap` (`memmap2`). Packed dequant for Q8_0 / Q5_K / Q6_K / IQ3_M is on the default crate. Tracked in [#45](https://github.com/rmems/engram-parser/issues/45). CUDA host-register remains out of scope.
 
@@ -28,18 +28,20 @@ Tracking for mmap + K-quant: [engram-parser#45](https://github.com/rmems/engram-
 
 ### Shipped behind feature — Safetensors
 
-The off-by-default `safetensors` feature owns reusable **metadata-side** support for:
+The off-by-default `safetensors` feature owns reusable support for:
 
-- Safetensors header deserialization;
+- Safetensors header deserialization (canonical validation via the upstream `safetensors` crate);
 - deterministic tensor manifests;
 - single-file, Hugging Face shard-index, and directory layouts;
 - checkpoint-relative shard resolution with path-escape rejection;
 - unique tensor ownership and missing-shard diagnostics;
 - tensor name/dtype/shape/offset/shard metadata;
 - MoE router/expert candidate discovery and grouping;
+- raw tensor payload access by name (`open_safetensors_checkpoint`, bounded per-tensor reads);
+- mmap-backed borrowed payload slices with `--features safetensors,mmap` (`open_safetensors_checkpoint_mmap`);
 - metadata-only layout-family inference where it is reusable outside Corinth.
 
-This means **engram-parser supports the Safetensors format itself**. It does **not** mean adding the upstream Rust `safetensors` crate as a dependency. The `safetensors` feature stays zero-dep: no `serde_json` and no extra crates. The only optional dependency in this crate is `memmap2` under `--features mmap`.
+The `safetensors` feature adds the upstream `safetensors` crate as an optional dependency; upstream types (`SafeTensors`, `TensorView`, `Dtype`) never appear in the public API. Engram keeps checkpoint discovery, shard/path policy, duplicate-key detection, stricter contiguous-range validation, and engram-owned dtype/shape/shard types.
 
 Tracking: [engram-parser#10](https://github.com/rmems/engram-parser/issues/10), [engram-parser#61](https://github.com/rmems/engram-parser/issues/61), and [corinth-canal#116](https://github.com/rmems/corinth-canal/issues/116).
 
@@ -52,7 +54,7 @@ Tracking: [engram-parser#10](https://github.com/rmems/engram-parser/issues/10), 
 - No Safetensors payload execution/matmul.
 - No Corinth experiment orchestration or SAAQ calibration.
 
-Safetensors payload **mmap/tensor extraction** and Hugging Face `config.json` interpretation remain outside the initial metadata feature when they depend on runtime/model-policy concerns. Those boundaries can be reconsidered through separate source-level promotion issues rather than silently expanding this parser crate.
+Safetensors payload **execution/matmul** and Hugging Face `config.json` interpretation remain outside this crate: payload access is byte-level only, with no runtime or model-policy concerns pulled in.
 
 ## Scope / boundaries
 
@@ -62,7 +64,7 @@ This crate **owns**:
 - MoE expert enumeration and per-expert raw-weight extraction.
 - Zero-dependency-by-default, layout-aware dtype handling; optional `mmap`.
 - Packed dequant for Q8_0 / Q5_K / Q6_K / IQ3_M block layout.
-- Feature-gated Safetensors header parsing, manifests, and MoE candidate discovery (`--features safetensors`).
+- Feature-gated Safetensors header parsing, manifests, MoE candidate discovery, and raw tensor payload access (`--features safetensors`; upstream `safetensors` crate).
 
 This crate **does not own**:
 
@@ -72,13 +74,13 @@ This crate **does not own**:
 - CUDA acceleration → [`myelin-accelerator`](https://github.com/Limen-Neural/myelin-accelerator);
 - end-to-end SAAQ experimentation → [`corinth-canal`](https://github.com/rmems/corinth-canal).
 
-**Allowed dependencies:** none on the default path. Cargo enables no crates unless `--features mmap`, which activates optional `memmap2` (the only extra crate). The `safetensors` feature stays zero-dep (in-crate JSON, no `serde_json` / upstream `safetensors` crate).
+**Allowed dependencies:** none on the default path. Cargo enables no crates unless `--features mmap` (optional `memmap2`) or `--features safetensors` (optional upstream `safetensors` crate, which transitively uses `serde`/`serde_json`). Engram-specific index JSON, manifest serialization, and duplicate-key detection stay in-crate.
 
 **Forbidden dependencies:** inference frameworks, GPU backends, domain-specific adapters, and any dependency on `corinth-canal`.
 
 | Crate | Responsibility |
 |---|---|
-| `engram-parser` | GGUF metadata + MoE raw extraction + optional mmap/K-quant dequant; feature-gated Safetensors metadata/manifest/discovery |
+| `engram-parser` | GGUF metadata + MoE raw extraction + optional mmap/K-quant dequant; feature-gated Safetensors metadata/manifest/discovery/raw payload access |
 | `cortex-tensor` | Tensor/Transformer math + real-weight MoE routing |
 | `hybrid-fusion` | Backend-agnostic Transformer↔SNN orchestration/contracts |
 | `neuromod` | SNN neuron/network dynamics |
@@ -114,7 +116,7 @@ The reusable Safetensors metadata surface is being promoted into `engram-parser`
 - MoE candidate discovery;
 - no numerical runtime;
 - no GPU dependency;
-- zero-dependency parsing (the `safetensors` feature adds no crates).
+- minimal optional dependencies (the `safetensors` feature adds only the upstream `safetensors` crate).
 
 The initial extraction remains one-way:
 
@@ -188,7 +190,7 @@ for (block, expert) in list_experts(&layout) {
 Safetensors (requires `--features safetensors`):
 
 ```rust
-use engram_parser::safetensors::inspect_safetensors_checkpoint;
+use engram_parser::safetensors::{inspect_safetensors_checkpoint, open_safetensors_checkpoint};
 
 let manifest = inspect_safetensors_checkpoint("./model.safetensors")?;
 println!(
@@ -199,8 +201,13 @@ for tensor in &manifest.tensors {
     println!("{} {:?} {}", tensor.name, tensor.shape, tensor.dtype);
 }
 
+let checkpoint = open_safetensors_checkpoint("./model.safetensors")?;
+let raw: Vec<u8> = checkpoint.tensor_bytes("a.weight")?; // bounded read
+
 # Ok::<(), engram_parser::ParserError>(())
 ```
+
+With `--features safetensors,mmap`, `open_safetensors_checkpoint_mmap` returns borrowed `&[u8]` slices instead of owned copies.
 
 ## Supported GGUF dtypes
 
@@ -233,6 +240,8 @@ Current GGUF surface includes:
 Safetensors surface (`--features safetensors`) includes:
 
 - `inspect_safetensors_checkpoint`, `write_safetensors_manifest`;
+- `open_safetensors_checkpoint` → `SafetensorsCheckpoint` (`tensor`, `tensor_bytes`, `resolve_tensor_bytes`, `manifest`);
+- `#[cfg(feature = "mmap")] open_safetensors_checkpoint_mmap` → `SafetensorsCheckpointMmap` (borrowed `&[u8]` payload slices);
 - `SafetensorsManifest`, `SafetensorsCheckpointSource`, `SafetensorsTensorRecord`;
 - `classify_tensor`, `discover_candidates`;
 - `SafetensorsCandidateSummary`, `SafetensorsRouterCandidate`, `SafetensorsExpertGroup`;
@@ -257,7 +266,7 @@ This is coordinated by [corinth-canal#161](https://github.com/rmems/corinth-cana
 
 ## Development
 
-This crate is zero-dependency **by default**. Enable `mmap` for `memmap2`. Enable `safetensors` for header/manifest/discovery.
+This crate is zero-dependency **by default**. Enable `mmap` for `memmap2`. Enable `safetensors` for header/manifest/discovery plus raw payload access (upstream `safetensors` crate); combine with `mmap` for borrowed payload slices.
 
 ```bash
 cargo fmt --check

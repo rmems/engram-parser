@@ -23,9 +23,11 @@
 //!   on-wire `ggml_type` integer used by GGUF)
 //! - **MoE support**: Extract expert **raw** weights (byte buffers + shape)
 //! - **Metadata helpers**: Architecture-aware convenience methods for common fields
-//! - **Optional Safetensors**: enable `--features safetensors` for header-only
-//!   inspection, deterministic manifests, and MoE candidate discovery (no
-//!   payload mmap, no Hugging Face `config.json` policy)
+//! - **Optional Safetensors**: enable `--features safetensors` for
+//!   inspection, deterministic manifests, MoE candidate discovery, and raw
+//!   tensor payload access via the upstream `safetensors` crate. Combine
+//!   with `--features mmap` for borrowed mmap-backed payload slices. No
+//!   Hugging Face `config.json` policy.
 //!
 //! # Example
 //!

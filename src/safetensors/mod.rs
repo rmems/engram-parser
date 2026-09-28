@@ -2,15 +2,13 @@
 //! Header-only Safetensors inspection, deterministic manifests, and MoE
 //! candidate discovery.
 //!
-//! Gated behind the off-by-default `safetensors` cargo feature. This module
-//! is a one-way generalization of the reusable metadata surface in
-//! `corinth-canal/src/moe/safetensors/` (`discovery`, `json`, `paths`,
-//! `manifest`, `validate`). Corinth-specific `config` (HF `config.json`)
-//! and `map` (payload mmap / token extract) are not ported.
-//!
-//! Zero-dependency: the upstream `safetensors` crate, `serde_json`, and
-//! `corinth-canal` are forbidden. Header and shard-index JSON are parsed
-//! in-crate.
+//! Gated behind the off-by-default `safetensors` cargo feature, which
+//! pulls in the upstream `safetensors` crate for canonical header
+//! validation. Engram keeps ownership of checkpoint discovery, shard
+//! path policy, deterministic manifests, MoE candidate discovery, and
+//! raw tensor payload access; upstream types are not part of the public
+//! API. Corinth-specific `config` (HF `config.json`) policy is not
+//! ported.
 //!
 //! ```no_run
 //! use engram_parser::safetensors::inspect_safetensors_checkpoint;
@@ -20,9 +18,12 @@
 //! # Ok::<(), engram_parser::ParserError>(())
 //! ```
 
+mod checkpoint;
 mod discovery;
 mod json;
 mod manifest;
+#[cfg(feature = "mmap")]
+mod map;
 mod paths;
 mod validate;
 
@@ -32,6 +33,7 @@ mod tests;
 use crate::error::ParserError;
 use std::path::Path;
 
+pub use checkpoint::{SafetensorsCheckpoint, open_safetensors_checkpoint};
 pub use discovery::{
     SafetensorsCandidateSummary, SafetensorsExpertGroup, SafetensorsRouterCandidate,
     classify_tensor, discover_candidates,
@@ -40,6 +42,8 @@ pub use manifest::{
     INDEX_UNREFERENCED_SHARDS_KEY, SafetensorsCheckpointSource, SafetensorsManifest,
     SafetensorsTensorRecord, inspect_safetensors_checkpoint, write_safetensors_manifest,
 };
+#[cfg(feature = "mmap")]
+pub use map::{SafetensorsCheckpointMmap, open_safetensors_checkpoint_mmap};
 pub use validate::dtype_size_bytes;
 
 pub(super) fn relative_path(path: &Path, root: &Path) -> String {

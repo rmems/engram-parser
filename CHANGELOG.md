@@ -6,13 +6,29 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- **Safetensors raw payload access ([RM-1783](https://linear.app/rpd-34/issue/RM-1783) / #86):**
+  the `safetensors` feature now pulls the upstream `safetensors` crate
+  (0.8) for canonical header validation and adds
+  `open_safetensors_checkpoint` → `SafetensorsCheckpoint` with bounded
+  per-tensor `tensor_bytes` reads over single-file, shard-index, and
+  directory layouts. With `--features safetensors,mmap`,
+  `open_safetensors_checkpoint_mmap` → `SafetensorsCheckpointMmap`
+  returns payload `&[u8]` borrowed from per-shard `memmap2` mappings, so
+  large sharded checkpoints need no whole-checkpoint copies. MoE
+  discovery results (`SafetensorsTensorRecord`, candidate names) resolve
+  to real raw bytes via `resolve_tensor_bytes`/`tensor_bytes`. Upstream
+  `SafeTensors`/`TensorView`/`Dtype` types are not part of the public
+  API; discovery, shard path policy, duplicate-key detection, and
+  contiguous-range validation remain engram-owned. Each shard header is
+  revalidated against the manifest on the file handle retained at open,
+  and reads pin to that handle under a lock.
 - **Safetensors feature (`#10`):** off-by-default `safetensors` cargo feature
   for header-only inspection, deterministic manifests, single-file / Hugging
   Face shard-index / directory layouts, and MoE router/expert candidate
-  discovery. Public API lives in `engram_parser::safetensors`. Zero extra
-  crates: `[dependencies]` stays empty for this feature; the upstream
-  `safetensors` crate, `serde_json`, and `corinth-canal` are not used. Does
-  not include payload mmap or Hugging Face `config.json` policy.
+  discovery. Public API lives in `engram_parser::safetensors`. Does
+  not include Hugging Face `config.json` policy. As of RM-1783 the
+  feature uses the upstream `safetensors` crate for canonical
+  validation; the earlier zero-extra-crates claim no longer applies.
 - **GGUF `ParseLimits` (RM-1358):** documented resource budgets for untrusted
   GGUF headers — KV count, tensor count, string bytes, array work items,
   tensor rank, and metadata bytes. File-declared `u64` sizes convert with
@@ -52,9 +68,9 @@ All notable changes to this project are documented in this file.
   separate `safetensors-parser` crate. This supersedes the "engram-parser
   charter remains GGUF-only" language previously carried by `README.md`,
   `REVIEW.md`, corinth-canal `docs/MODULE_STATUS.md`, and cortex-tensor#9.
-  Default builds keep `[dependencies]` empty. The `mmap` feature is the
-  only optional dependency (`memmap2`); the `safetensors` feature stays
-  zero-dep. The initial Safetensors extraction is a one-way copy from
+  Default builds keep `[dependencies]` empty; optional dependencies are
+  `memmap2` (`mmap`) and the upstream `safetensors` crate
+  (`safetensors`). The initial Safetensors extraction is a one-way copy from
   `rmems/corinth-canal` inspiration with no dependency in either direction;
   it is not a permanent duplication policy. Once this crate meets the
   relevant adoption requirements, a future Corinth dependency may replace
