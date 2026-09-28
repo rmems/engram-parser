@@ -247,7 +247,7 @@ pub(crate) fn parse_layout(
     let (alignment, metadata) = read_metadata_section(&mut cursor, path, header.kv_count)?;
     let mut tensors = read_tensor_directory(&mut cursor, path, header.tensor_count)?;
     let tensor_data_offset =
-        finalize_tensor_offsets(&mut tensors, cursor.offset(), alignment, path)?;
+        finalize_tensor_offsets(&mut tensors, cursor.offset(), alignment, bytes.len(), path)?;
     Ok((metadata, tensors, alignment, tensor_data_offset))
 }
 
@@ -331,6 +331,14 @@ fn read_tensor_directory(
     let mut tensors = HashMap::with_capacity(tensor_count);
     for _ in 0..tensor_count {
         let tensor = read_tensor_entry(cursor, path)?;
+        // A HashMap cannot report a duplicate after `insert` (it silently
+        // last-wins), so reject the collision before inserting.
+        if tensors.contains_key(&tensor.name) {
+            return Err(invalid_layout(
+                path,
+                format!("duplicate tensor name '{}' in directory", tensor.name),
+            ));
+        }
         tensors.insert(tensor.name.clone(), tensor);
     }
     Ok(tensors)
@@ -424,10 +432,26 @@ fn tensor_byte_len(
     })
 }
 
+/// Resolve each tensor's absolute offset and enforce the tensor-directory
+/// packing contract.
+///
+/// Every tensor payload range `[absolute_offset, absolute_offset + byte_len)`
+/// must lie fully within the file/mapping (`total_len`) and must not overlap
+/// any other tensor's range. Gaps between consecutive ranges are permitted
+/// (they are normal alignment padding), so contiguity is not required.
+/// Zero-length tensors (`byte_len == 0`) occupy no bytes: their
+/// `absolute_offset` is still range-checked against `total_len`, but they are
+/// excluded from the overlap comparison because an empty range cannot overlap.
+///
+/// This is the semantic directory contract (duplicate names are rejected
+/// earlier in [`read_tensor_directory`]). The RM-1358 offset-wrap guard
+/// (`tensor_data_offset + relative_offset` via `checked_add`) is a separate,
+/// preserved concern.
 fn finalize_tensor_offsets(
     tensors: &mut HashMap<String, Tensor>,
     cursor_offset: usize,
     alignment: usize,
+    total_len: usize,
     path: &str,
 ) -> Result<usize> {
     let tensor_data_offset = align_up_checked(cursor_offset, alignment, path)?;
@@ -440,18 +464,52 @@ fn finalize_tensor_offsets(
                     format!("tensor '{}' absolute offset overflow", tensor.name),
                 )
             })?;
-        if tensor
+        let end = tensor
             .absolute_offset
             .checked_add(tensor.byte_len)
-            .is_none()
-        {
+            .ok_or_else(|| {
+                invalid_layout(
+                    path,
+                    format!("tensor '{}' byte-length overflow", tensor.name),
+                )
+            })?;
+        if end > total_len {
             return Err(invalid_layout(
                 path,
-                format!("tensor '{}' byte-length overflow", tensor.name),
+                format!(
+                    "tensor '{}' extends beyond file ({end} > {total_len})",
+                    tensor.name
+                ),
             ));
         }
     }
+    check_no_overlap(tensors, path)?;
     Ok(tensor_data_offset)
+}
+
+/// Reject overlapping tensor payload ranges. Zero-length tensors are skipped
+/// (an empty range cannot overlap). Gaps between ranges are allowed.
+fn check_no_overlap(tensors: &HashMap<String, Tensor>, path: &str) -> Result<()> {
+    let mut ranges: Vec<(&str, usize, usize)> = tensors
+        .values()
+        .filter(|t| t.byte_len > 0)
+        .map(|t| (t.name.as_str(), t.absolute_offset, t.byte_len))
+        .collect();
+    // Sort by start offset, tie-break by name for deterministic messages.
+    ranges.sort_unstable_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(b.0)));
+    for window in ranges.windows(2) {
+        let (prev_name, prev_start, prev_len) = window[0];
+        let (name, start, _) = window[1];
+        // Ranges are sorted by start; `prev_start + prev_len` cannot overflow
+        // because both are already bounded by `total_len`.
+        if start < prev_start + prev_len {
+            return Err(invalid_layout(
+                path,
+                format!("tensors '{prev_name}' and '{name}' have overlapping payloads"),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn capture_kv(
