@@ -6,6 +6,7 @@
 use engram_parser::safetensors::{open_safetensors_checkpoint, open_safetensors_checkpoint_mmap};
 use std::fs::{self, File};
 use std::io::Write;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -100,6 +101,14 @@ fn mmap_sparse_large_shard_maps_without_full_read() {
         file.write_all(header.as_bytes()).unwrap();
         file.set_len(8 + header.len() as u64 + 1_073_741_824)
             .unwrap();
+    }
+
+    // Same guard as tests/mmap_gguf.rs: skip on filesystems that fully
+    // allocate the file rather than leaving the payload a hole.
+    let allocated = fs::metadata(&path).unwrap().blocks() * 512;
+    if allocated >= 64 * 1024 * 1024 {
+        eprintln!("skip sparse mmap test: filesystem allocated {allocated} bytes (not a hole)");
+        return;
     }
 
     let mapped = open_safetensors_checkpoint_mmap(&path).unwrap();

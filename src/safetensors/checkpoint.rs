@@ -10,7 +10,7 @@
 //! Engram owns checkpoint discovery, shard/path policy, and the public
 //! tensor representation; the upstream `safetensors` crate is used for
 //! canonical header validation where a whole shard buffer is available
-//! (see the `mmap` backend in [`super::map`]).
+//! (the `mmap` backend in `map.rs`).
 
 use super::manifest::{
     MAX_HEADER_BYTES, SafetensorsManifest, SafetensorsTensorRecord, inspect_safetensors_checkpoint,
@@ -57,10 +57,9 @@ pub struct SafetensorsCheckpoint {
 /// [`inspect_safetensors_checkpoint`]: headers are checked by engram's
 /// fail-closed parser (duplicate-key rejection, contiguous
 /// `data_offsets`, dtype/shape byte sizes). Upstream-crate canonical
-/// validation runs per shard in the `mmap` backend
-/// ([`super::map`]) — upstream `SafeTensors::read_metadata` requires a
-/// whole-shard buffer, so it cannot run here without breaking the
-/// bounded-memory contract.
+/// validation runs per shard in the `mmap` backend — upstream
+/// `SafeTensors::read_metadata` requires a whole-shard buffer, so it
+/// cannot run here without breaking the bounded-memory contract.
 pub fn open_safetensors_checkpoint(path: impl AsRef<Path>) -> Result<SafetensorsCheckpoint> {
     let manifest = inspect_safetensors_checkpoint(path.as_ref())?;
     let shards = resolve_checkpoint_shards(path.as_ref(), &manifest)?;
@@ -118,15 +117,10 @@ impl SafetensorsCheckpoint {
             .try_clone()
             .map_err(|e| io_error(&shard.path, e))?;
         let mut bytes = vec![0u8; tensor.byte_size];
-        let start = shard
-            .data_begin
-            .checked_add(tensor.data_offsets[0] as u64)
-            .ok_or_else(|| {
-                model_load(
-                    &shard.path,
-                    format!("tensor '{name}' payload offset overflow"),
-                )
-            })?;
+        // `data_offsets` were validated against this shard's data
+        // section at open (`end <= data_len`), so the sum is bounded by
+        // file_len and cannot overflow.
+        let start = shard.data_begin + tensor.data_offsets[0] as u64;
         file.seek(SeekFrom::Start(start))
             .and_then(|_| file.read_exact(&mut bytes))
             .map_err(|e| io_error(&shard.path, e))?;

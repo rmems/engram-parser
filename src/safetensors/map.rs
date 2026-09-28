@@ -88,12 +88,9 @@ pub fn open_safetensors_checkpoint_mmap(
                 ));
             }
         }
-        let data_begin = usize::try_from(data_begin).map_err(|_| {
-            model_load(
-                &shard_path,
-                "Safetensors data offset does not fit in usize".to_string(),
-            )
-        })?;
+        // `data_begin` is `8 + header_len` with `header_len` capped at
+        // MAX_HEADER_BYTES, so it always fits in usize.
+        let data_begin = data_begin as usize;
         shards.insert(
             relative,
             MappedShard {
@@ -152,24 +149,12 @@ impl SafetensorsCheckpointMmap {
                 format!("tensor '{name}' has no resolved shard"),
             )
         })?;
-        let start = shard
-            .data_begin
-            .checked_add(tensor.data_offsets[0])
-            .ok_or_else(|| {
-                model_load(
-                    &shard.path,
-                    format!("tensor '{name}' payload offset overflow"),
-                )
-            })?;
-        let end = shard
-            .data_begin
-            .checked_add(tensor.data_offsets[1])
-            .ok_or_else(|| {
-                model_load(
-                    &shard.path,
-                    format!("tensor '{name}' payload offset overflow"),
-                )
-            })?;
+        // `data_offsets` were validated against this shard's data
+        // section at open (`end <= data_len`); `data_begin + end` is
+        // bounded by file_len and cannot overflow. `Mmap::get` is the
+        // final bounds check.
+        let start = shard.data_begin + tensor.data_offsets[0];
+        let end = shard.data_begin + tensor.data_offsets[1];
         shard.mmap.get(start..end).ok_or_else(|| {
             model_load(
                 &shard.path,
