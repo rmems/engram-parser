@@ -284,28 +284,21 @@ fn relative_zero_cannot_expose_header_bytes() {
 }
 
 #[test]
-fn overlapping_relative_offsets_stay_in_tensor_data() {
+fn overlapping_relative_offsets_are_rejected() {
+    // Two F32 tensors both at relative_offset 0 share the same payload range.
+    // Overlapping payloads violate the tensor-directory packing contract and
+    // must fail closed at parse time (RM-1460).
     let bytes = two_f32_tensors_at_relative_offset(0);
-    let layout = parse_bytes(bytes, "mem://overlap".into()).expect("parse overlap");
-    let left = layout.tensor("left").expect("left");
-    let right = layout.tensor("right").expect("right");
-    let left_bytes = layout.tensor_bytes(left).expect("left payload");
-    let right_bytes = layout.tensor_bytes(right).expect("right payload");
-    assert_all(&[
-        (left.relative_offset == 0, "left-rel"),
-        (right.relative_offset == 0, "right-rel"),
-        (
-            left.absolute_offset == layout.tensor_data_offset,
-            "left-abs",
-        ),
-        (
-            right.absolute_offset == layout.tensor_data_offset,
-            "right-abs",
-        ),
-        (!left_bytes.starts_with(&GGUF_MAGIC), "left-not-header"),
-        (!right_bytes.starts_with(&GGUF_MAGIC), "right-not-header"),
-        (left_bytes == right_bytes, "shared-data-section-bytes"),
-    ]);
+    let err = parse_err(bytes, ParseLimits::default());
+    match err {
+        ParserError::InvalidLayout { reason, .. } => {
+            assert!(
+                reason.contains("overlap") && reason.contains("left") && reason.contains("right"),
+                "overlap message must name both tensors: {reason}"
+            );
+        }
+        other => panic!("expected InvalidLayout overlap, got {other}"),
+    }
 }
 
 #[test]
