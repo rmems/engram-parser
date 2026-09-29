@@ -57,7 +57,8 @@ jobs:
           test "$TAG" = "v$VERSION" || { echo "::error::tag '$TAG' does not match Cargo.toml version '$VERSION'"; exit 1; }
           git fetch origin main
           git merge-base --is-ancestor HEAD origin/main || { echo "::error::ref is not contained in origin/main"; exit 1; }
-          EXISTING=$(git ls-remote --tags origin "refs/tags/$TAG" | awk '{print $1}')
+          # Peel annotated tags: refs/tags/$TAG is the tag object, ^{} the commit
+          EXISTING=$(git ls-remote --tags origin "$TAG" | awk -v t="refs/tags/$TAG^{}" -v l="refs/tags/$TAG" '$2==t {print $1} $2==l {print $1}' | tail -1)
           if [ -n "$EXISTING" ]; then
             test "$EXISTING" = "$(git rev-parse HEAD)" || { echo "::error::Tag '$TAG' already exists on a different commit"; exit 1; }
             echo "Tag '$TAG' already exists on this commit; continuing (retry)"
@@ -132,7 +133,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          EXISTING=$(git ls-remote --tags origin "refs/tags/$TAG" | awk '{print $1}')
+          EXISTING=$(git ls-remote --tags origin "$TAG" | awk -v t="refs/tags/$TAG^{}" -v l="refs/tags/$TAG" '$2==t {print $1} $2==l {print $1}' | tail -1)
           if [ -n "$EXISTING" ]; then
             test "$EXISTING" = "$(git rev-parse HEAD)" || { echo "::error::Tag '$TAG' exists on a different commit"; exit 1; }
             echo "Tag '$TAG' already pushed on this commit; skipping"
