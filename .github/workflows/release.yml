@@ -47,15 +47,20 @@ jobs:
           shared-key: "release-v2"
           cache-on-failure: false
 
-      - name: Validate version and unpublished tag
+      - name: Validate inputs and unpublished tag
         env:
           TAG: ${{ github.event.inputs.tag }}
+          REF: ${{ github.event.inputs.ref }}
         run: |
+          echo "$REF" | grep -qxE '[0-9a-f]{40}' || { echo "::error::ref must be a full commit SHA"; exit 1; }
           VERSION=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
-          test "$TAG" = "v$VERSION"
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "::error::Tag '$TAG' already exists; tags are created only after this gate"
-            exit 1
+          test "$TAG" = "v$VERSION" || { echo "::error::tag '$TAG' does not match Cargo.toml version '$VERSION'"; exit 1; }
+          git fetch origin main
+          git merge-base --is-ancestor HEAD origin/main || { echo "::error::ref is not contained in origin/main"; exit 1; }
+          EXISTING=$(git ls-remote --tags origin "refs/tags/$TAG" | awk '{print $1}')
+          if [ -n "$EXISTING" ]; then
+            test "$EXISTING" = "$(git rev-parse HEAD)" || { echo "::error::Tag '$TAG' already exists on a different commit"; exit 1; }
+            echo "Tag '$TAG' already exists on this commit; continuing (retry)"
           fi
 
       - name: Record verified commit
@@ -83,7 +88,16 @@ jobs:
         run: cargo doc --all-features --no-deps
 
       - name: Inspect package contents
-        run: cargo package --list
+        run: |
+          LIST=$(cargo package --list)
+          echo "$LIST"
+          for f in Cargo.toml Cargo.toml.orig README.md CHANGELOG.md LICENSE-MIT LICENSE-APACHE-2.0 src/lib.rs; do
+            echo "$LIST" | grep -qx "$f" || { echo "::error::package is missing $f"; exit 1; }
+          done
+          if echo "$LIST" | grep -nE '(^|/)(\.env.*|target/|.*\.(pem|key))$'; then
+            echo "::error::package contains artifacts that must not be published"
+            exit 1
+          fi
 
       - name: Build package
         run: cargo package --locked
@@ -104,14 +118,28 @@ jobs:
           persist-credentials: true
           fetch-depth: 0
 
+      - name: Confirm crates.io publication
+        env:
+          TAG: ${{ github.event.inputs.tag }}
+        run: |
+          V="${TAG#v}"
+          HTTP=$(curl -fsS -o /dev/null -w '%{http_code}' "https://crates.io/api/v1/crates/engram-parser/$V" || true)
+          test "$HTTP" = 200 || { echo "::error::engram-parser $V is not on crates.io; publish first (see RELEASE.md)"; exit 1; }
+
       - name: Create and push tag
         env:
           TAG: ${{ github.event.inputs.tag }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$TAG" -m "Release $TAG"
-          git push origin "$TAG"
+          EXISTING=$(git ls-remote --tags origin "refs/tags/$TAG" | awk '{print $1}')
+          if [ -n "$EXISTING" ]; then
+            test "$EXISTING" = "$(git rev-parse HEAD)" || { echo "::error::Tag '$TAG' exists on a different commit"; exit 1; }
+            echo "Tag '$TAG' already pushed on this commit; skipping"
+          else
+            git tag -a "$TAG" -m "Release $TAG"
+            git push origin "$TAG"
+          fi
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
