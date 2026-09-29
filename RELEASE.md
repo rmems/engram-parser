@@ -19,7 +19,7 @@ cargo test
 cargo clippy --all-targets --all-features -- -D warnings
 cargo build --all-features
 cargo test --all-features
-cargo doc --all-features --no-deps
+RUSTDOCFLAGS='-D warnings' cargo doc --all-features --no-deps
 cargo package --list
 cargo package --locked
 cargo publish --dry-run --locked
