@@ -4,6 +4,9 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+This work targets **v0.3.0, the first public crates.io publication**. Version
+0.2.0 was used only during development and was never published.
+
 ### Added
 
 - **Safetensors raw payload access ([RM-1783](https://linear.app/rpd-34/issue/RM-1783) / #86):**
@@ -79,7 +82,7 @@ All notable changes to this project are documented in this file.
   #45.) Safetensors is now **code** behind the feature, not a decision-only
   note.
 
-## [0.2.0] - 2026-08-02
+## [0.2.0] - Unpublished development version
 
 ### Added
 
@@ -95,7 +98,7 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
-- **Version:** `0.1.0` → **`0.2.0`** (canonical GGUF v3 + MoE extract ship for #7).
+- **Version:** `0.1.0` → **`0.2.0`** during development (canonical GGUF v3 + MoE extract for #7); this version was not published.
 - **MSRV:** bumped from 1.87 to **1.97.1** (`Cargo.toml` `rust-version`, CI `msrv` job, Docker `RUST_VERSION`). CI `validate` continues to use latest **stable**.
 - **License:** switched from GPL-3.0-or-later to dual MIT/Apache-2.0 for maximum adoption and ecosystem health.
 - **Tensor API:** replaced unsafe `as_f32_slice` / `as_u16_bits` with safe `read_f32_values` / `read_u16_values` (allocating `Vec` instead of borrowed slices).

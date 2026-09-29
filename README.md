@@ -270,9 +270,10 @@ This crate is zero-dependency **by default**. Enable `mmap` for `memmap2`. Enabl
 
 ```bash
 cargo fmt --check
-cargo clippy --all-targets --all-features -- -D warnings
+cargo clippy --all-targets -- -D warnings
 cargo build
 cargo test
+cargo clippy --all-targets --all-features -- -D warnings
 cargo test --features mmap
 cargo test --features safetensors
 cargo build --all-features
@@ -310,10 +311,17 @@ docker pull ghcr.io/rmems/engram-parser:main
 
 - GitHub Actions: `.github/workflows/ci.yml`
 - Security: `.github/workflows/security.yml`
-- Azure Pipelines: `azure-pipelines.yml`
 - Docker: `Dockerfile` + `.github/workflows/docker-build.yml`
 
 Related CI/DX trackers include #8, #9, #11–#16.
+
+## Releases
+
+Version 0.3.0 is the first crates.io publication target; 0.2.0 was an
+unpublished development version. See [`RELEASE.md`](RELEASE.md) for the
+mandatory package-inspection, rustdoc, packaging, and publish-dry-run gate.
+Tags and GitHub Releases are created only after that gate and publication
+have succeeded.
 
 ## MSRV (Minimum Supported Rust Version)
 
