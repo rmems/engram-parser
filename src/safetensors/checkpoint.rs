@@ -140,6 +140,11 @@ impl SafetensorsCheckpoint {
         self.tensor_bytes(&record.name)
     }
 
+    /// Absolute file offset of `source_shard`'s data section (`8 + header_len`).
+    pub(crate) fn shard_data_begin(&self, source_shard: &str) -> Option<u64> {
+        self.shards.get(source_shard).map(|shard| shard.data_begin)
+    }
+
     fn display_path(&self) -> String {
         self.shards
             .values()

@@ -237,6 +237,8 @@ the CI `msrv` job.
 | Integration | `tests/gguf_smoke.rs` | Synthetic GGUF parse, stacked/per-expert MoE extract, Q8_0/Q4_K slices, `file_type` quant fallback, bad magic/version/truncation |
 | Pilot (ignored) | `tests/real_gguf.rs` | Real weights via `ENGRAM_GGUF` / `ENGRAM_MODEL_DIR` (xai-dissect pilots) |
 | Example | `examples/inspect_gguf.rs` | Human inventory of one real GGUF |
+| Integration | `tests/checkpoint_api.rs` | Format-independent `Checkpoint` contract: GGUF/Safetensors backends, owned vs mmap equivalence, `open_checkpoint` detection |
+| Example | `examples/inspect_checkpoint.rs` | Format-agnostic inventory via `&dyn Checkpoint` (GGUF or Safetensors) |
 | Always-on contract | `real_gguf_helpers_document_env` | Env names + empty pilot list when unset |
 | Doctests | `src/lib.rs`, `ggml_type_label` | Public API examples compile |
 

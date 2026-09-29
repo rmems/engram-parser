@@ -168,6 +168,14 @@ pub enum ParserError {
         /// Path of the index or checkpoint that referenced the shard.
         path: String,
     },
+    /// The input needs a backend whose cargo feature is not enabled
+    /// (for example Safetensors input without `--features safetensors`).
+    FeatureDisabled {
+        /// Path of the checkpoint.
+        path: String,
+        /// Cargo feature that would enable the backend.
+        feature: &'static str,
+    },
 }
 
 impl ParserError {
@@ -238,6 +246,10 @@ impl fmt::Display for ParserError {
             Self::MissingShard { shard, path } => {
                 write!(f, "missing shard '{shard}' referenced by '{path}'")
             }
+            Self::FeatureDisabled { path, feature } => write!(
+                f,
+                "'{path}' requires the `{feature}` cargo feature, which is not enabled"
+            ),
         }
     }
 }
@@ -253,7 +265,8 @@ impl std::error::Error for ParserError {
             | Self::LimitExceeded { .. }
             | Self::HostSizeOverflow { .. }
             | Self::DuplicateTensorOwnership { .. }
-            | Self::MissingShard { .. } => None,
+            | Self::MissingShard { .. }
+            | Self::FeatureDisabled { .. } => None,
         }
     }
 }

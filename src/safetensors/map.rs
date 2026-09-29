@@ -140,6 +140,13 @@ impl SafetensorsCheckpointMmap {
         Ok(&self.manifest.tensors[*index])
     }
 
+    /// Absolute file offset of `source_shard`'s data section (`8 + header_len`).
+    pub(crate) fn shard_data_begin(&self, source_shard: &str) -> Option<u64> {
+        self.shards
+            .get(source_shard)
+            .map(|shard| shard.data_begin as u64)
+    }
+
     /// Borrowed raw payload bytes of `name`, validated at open time.
     ///
     /// The returned slice borrows from the owning shard's mapping; no

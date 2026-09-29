@@ -248,6 +248,43 @@ Safetensors surface (`--features safetensors`) includes:
 - `dtype_size_bytes`;
 - `ParserError::DuplicateTensorOwnership` and `ParserError::MissingShard` for shard-index diagnostics.
 
+## Format-independent checkpoint API
+
+`engram_parser::checkpoint` (re-exported at the crate root, default features) is one contract over GGUF and Safetensors, so research code can inventory tensors, read metadata, and fetch raw payloads without branching on format ([#87](https://github.com/rmems/engram-parser/issues/87)).
+
+```rust
+use engram_parser::{Checkpoint, open_checkpoint};
+
+let ckpt = open_checkpoint("./model.gguf")?; // or a .safetensors file, index, or directory
+for t in ckpt.tensors() {
+    println!("{} {} {:?} {}B @ {}", t.name, t.dtype, t.shape.dims(), t.byte_len, t.location.source);
+}
+let raw = ckpt.tensor_bytes("token_embd.weight")?; // Cow<[u8]>, raw and undecoded
+
+# Ok::<(), engram_parser::ParserError>(())
+```
+
+- **Trait:** `Checkpoint` (object safe, `Send + Sync`): `source`, `format`, `tensors` (sorted by name), `tensor`, `metadata`, `tensor_bytes`.
+- **Detection:** `open_checkpoint` treats a directory as Safetensors, a file with `GGUF` magic as GGUF (any extension), and `*.safetensors` / `*.safetensors.index.json` as Safetensors. Anything else returns `UnsupportedFormat`. Safetensors input without the feature returns `ParserError::FeatureDisabled`; no other backend is substituted. With `mmap`, `open_checkpoint_mmap` maps GGUF files and Safetensors shards.
+- **Shape order:** `TensorShape::dims()` is outermost-first for both formats. GGUF dims (innermost-first on disk) are reversed; `native_dims()` / `native_order()` recover the on-disk order.
+- **Dtypes:** scalar types normalize to shared `TensorDType` variants. GGML quantized layouts stay `TensorDType::GgufPacked { ggml_type }` with the exact wire code, and `TensorInfo::native_dtype` keeps the source label (`Q4_K`, `BF16`, …).
+- **Payloads:** bytes are returned exactly as stored, with length equal to `byte_len`. They are borrowed for GGUF and all mmap backends, and owned (bounded per-tensor read) for plain Safetensors.
+- **Location:** `source` is relative to `CheckpointSource::root`, `data_offset` is relative to the tensor-data section, and `file_offset` is absolute.
+- **Metadata:** GGUF scalars map to `MetadataValue::{String, UInt, Int, F32, F64}`; GGUF arrays are not captured (same as `GgufMetadata`), and `general.alignment` is a layout field (`layout().alignment`), not a metadata entry. Safetensors metadata is the manifest's flattened string map.
+
+| Backend | Wraps | Feature | Payload |
+|---|---|---|---|
+| `GgufBackend` | `GgufLayout` | default | borrowed |
+| `GgufMmapBackend` | `GgufLayoutMmap` | `mmap` | borrowed |
+| `SafetensorsBackend` | `safetensors::SafetensorsCheckpoint` | `safetensors` | owned |
+| `SafetensorsMmapBackend` | `safetensors::SafetensorsCheckpointMmap` | `safetensors` + `mmap` | borrowed |
+
+**Migration.** Existing APIs are unchanged. To go from `load_gguf` to the shared contract, use `GgufBackend::open(path)` (or `from_layout(layout)` / `from_bytes`). `layout()` / `into_layout()` still reach `list_experts`, `extract_expert`, `find_tensors_with_suffix`, and dequant. `AnyCheckpoint::as_gguf()`, `as_safetensors()`, and the mmap variants return the format-specific handles. The Safetensors manifest and candidate-discovery APIs are unchanged.
+
+**Downstream (`cortex-tensor`, `hybrid-fusion`, `corinth-canal`, `grok-ozempic`).** The contract has no GPU, execution, or MoE types, and upstream crate types never appear in it. `TensorInfo::new` builds mock inventories without checkpoint files. Model topology and role discovery are out of scope here and are planned for v0.4.0 (RM-1785).
+
+Format-agnostic inventory example: `cargo run --example inspect_checkpoint -- <path>` (add `--features safetensors` for Safetensors, `--mmap` with the `mmap` feature).
+
 ## Ecosystem / promotion model
 
 `corinth-canal` is the experimental proving ground; reusable mechanisms graduate into focused libraries.

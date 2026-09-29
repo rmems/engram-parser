@@ -55,6 +55,7 @@ fn error_payload(err: &ParserError) -> String {
             format!("dup:{name}:{}", shards.join(","))
         }
         ParserError::MissingShard { shard, .. } => format!("missing-shard:{shard}"),
+        ParserError::FeatureDisabled { feature, .. } => format!("feature-disabled:{feature}"),
     }
 }
 
