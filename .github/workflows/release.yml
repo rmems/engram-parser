@@ -1,18 +1,19 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to release (e.g., v0.1.0)'
+        description: 'Published version tag (v0.3.0 for the first release)'
+        required: true
+        type: string
+      ref:
+        description: 'Exact published commit SHA'
         required: true
         type: string
 
 concurrency:
-  group: release-${{ github.workflow }}-${{ github.ref }}
+  group: release-${{ github.event.inputs.tag }}
   cancel-in-progress: false
 
 permissions:
@@ -20,15 +21,18 @@ permissions:
 
 jobs:
   verify:
-    name: Verify Release
+    name: Verify publication gate
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      commit: ${{ steps.commit.outputs.sha }}
     steps:
       # actions/checkout@v7.0.0
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          ref: ${{ github.event.inputs.ref }}
           persist-credentials: false
-          fetch-depth: 0  # Full history for changelog generation
+          fetch-depth: 0
 
       # dtolnay/rust-toolchain@stable
       - name: Install Rust stable
@@ -40,23 +44,55 @@ jobs:
       - name: Cache Cargo + target
         uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16
         with:
-          shared-key: "release-v1"
+          shared-key: "release-v2"
           cache-on-failure: false
+
+      - name: Validate version and unpublished tag
+        env:
+          TAG: ${{ github.event.inputs.tag }}
+        run: |
+          VERSION=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
+          test "$TAG" = "v$VERSION"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "::error::Tag '$TAG' already exists; tags are created only after this gate"
+            exit 1
+          fi
+
+      - name: Record verified commit
+        id: commit
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Check formatting
         run: cargo fmt --check
 
-      - name: Clippy (lint)
+      - name: Clippy (default features)
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Build and test (default features)
+        run: cargo build && cargo test
+
+      - name: Clippy (all features)
         run: cargo clippy --all-targets --all-features -- -D warnings
 
-      - name: Build
-        run: cargo build --all-features --release
+      - name: Build and test (all features)
+        run: cargo build --all-features --release && cargo test --all-features --release
 
-      - name: Test
-        run: cargo test --all-features --release
+      - name: Build rustdoc
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+        run: cargo doc --all-features --no-deps
+
+      - name: Inspect package contents
+        run: cargo package --list
+
+      - name: Build package
+        run: cargo package --locked
+
+      - name: Verify crates.io publication
+        run: cargo publish --dry-run --locked
 
   release:
-    name: Create GitHub Release
+    name: Tag published commit and create GitHub Release
     needs: verify
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -64,78 +100,24 @@ jobs:
       # actions/checkout@v7.0.0
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          persist-credentials: false
+          ref: ${{ needs.verify.outputs.commit }}
+          persist-credentials: true
           fetch-depth: 0
 
-      - name: Determine tag
-        id: tag
+      - name: Create and push tag
         env:
-          INPUT_TAG: ${{ github.event.inputs.tag }}
+          TAG: ${{ github.event.inputs.tag }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Validate tag exists
-        run: |
-          TAG="${{ steps.tag.outputs.tag }}"
-          if ! git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "::error::Tag '$TAG' does not exist in the repository"
-            exit 1
-          fi
-          echo "✓ Tag '$TAG' exists"
-
-      - name: Generate changelog
-        id: changelog
-        run: |
-          TAG="${{ steps.tag.outputs.tag }}"
-          # Find previous tag for changelog range
-          PREV_TAG=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || echo "")
-          
-          if [ -z "$PREV_TAG" ]; then
-            echo "No previous tag found, using all commits up to ${TAG}"
-            CHANGELOG=$(git log --pretty=format:"- %s (%h)" "${TAG}")
-          else
-            echo "Generating changelog from ${PREV_TAG} to ${TAG}"
-            CHANGELOG=$(git log --pretty=format:"- %s (%h)" "${PREV_TAG}..${TAG}")
-          fi
-          
-          # Write changelog to output (escaped for GitHub Actions)
-          {
-            echo "changelog<<EOF"
-            echo "$CHANGELOG"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64  # v3
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
         with:
-          tag_name: ${{ steps.tag.outputs.tag }}
-          name: ${{ steps.tag.outputs.tag }}
-          body: |
-            ## What's Changed
-            
-            ${{ steps.changelog.outputs.changelog }}
-            
-            ---
-            
-            **Note:** This is an automated release. For manual publishing to crates.io, please run `cargo publish` locally.
+          tag_name: ${{ github.event.inputs.tag }}
+          name: ${{ github.event.inputs.tag }}
           draft: false
-          prerelease: ${{ contains(steps.tag.outputs.tag, '-') }}
-          generate_release_notes: false
+          prerelease: ${{ contains(github.event.inputs.tag, '-') }}
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # Optional: Sentry release tracking (if SENTRY_AUTH_TOKEN is configured)
-      - name: Create Sentry release
-        if: env.SENTRY_AUTH_TOKEN != ''
-        uses: getsentry/action-release@e769183448303de64eea5e88f5a46ef9c2977a78  # v1
-        env:
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
-        with:
-          version: ${{ steps.tag.outputs.tag }}
-          environment: production

@@ -44,7 +44,12 @@ cargo fmt
 # 1b) CI-style check (fails with exit 1 + a diff if anything needs format)
 cargo fmt --check
 
-# 2) Lint (fail on warnings)
+# 2a) Default-feature lint/build/test (GGUF-only, zero dependencies)
+cargo clippy --all-targets -- -D warnings
+cargo build
+cargo test
+
+# 2b) All-feature lint (fail on warnings)
 cargo clippy --all-targets --all-features -- -D warnings
 
 # 3) Build
@@ -123,10 +128,12 @@ There is no `rustfmt.toml` in this repo; defaults are fine.
 |------|---------|----------------|
 | `fmt` (apply) | `cargo fmt` | Rewrites sources to rustfmt style (silent if already clean) |
 | `fmt` (CI) | `cargo fmt --check` | Style matches rustfmt; fails with a diff if not |
+| `clippy` (default) | `cargo clippy --all-targets -- -D warnings` | The supported GGUF-only default configuration has no warnings |
 | `clippy` | `cargo clippy --all-targets --all-features -- -D warnings` | No Clippy warnings on lib + tests |
 | `build` (all features) | `cargo build --all-features` | Crate builds with every declared feature (`safetensors`, `mmap`) |
 | `build` (default) | `cargo build` | **Default build stays dep-free** — must keep passing now that `safetensors`/`mmap` exist |
 | `test` | `cargo test --all-features` | Unit (`src/gguf/tensor.rs`), smoke (`tests/gguf_smoke.rs`), doctests |
+| `test` (default) | `cargo test` | GGUF-only unit, integration, and doc tests pass independently |
 | `clean-tree` | `git status --porcelain` empty | No stray outputs after build/test |
 | `coverage` (opt) | `cargo llvm-cov --all-targets --all-features --locked --lcov --output-path lcov.info` | LCOV for Codecov (CI installs `cargo-llvm-cov`) |
 | `msrv` (opt) | toolchain **1.97.1** + same fmt/clippy/build/test | Matches `rust-version` / CI `msrv` job |
@@ -363,12 +370,13 @@ cargo run --locked --example benchmark --profile bench --features bench,cuda
 
 | Local step | Workflow job |
 |------------|----------------|
+| default-feature clippy, build, test | `default-features` in `.github/workflows/ci.yml` (GGUF-only, no optional dependencies) |
 | fmt, clippy, build, test (T0 only), clean-tree, llvm-cov | `validate` in `.github/workflows/ci.yml` (**stable** = latest) |
 | MSRV 1.97.1 fmt/clippy/build/test | `msrv` in `.github/workflows/ci.yml` (pinned `toolchain: "1.97.1"`) |
 | Security audit / Snyk | `.github/workflows/security.yml` (not required for every local edit) |
 | Docker image | `Dockerfile` (`ARG RUST_VERSION=1.97.1`) + `.github/workflows/docker-build.yml` |
 | T1 real GGUF / T2 GPU | **Not in CI** — local pilots only |
-| Default-feature build (`cargo build`, no features) | **No workflow job yet** — every feature-sensitive CI step (`clippy`, `build`, `test`, `llvm-cov`) passes `--all-features`; only `cargo fmt --check` is feature-agnostic. A `#[cfg(feature = "safetensors")]`/`mmap` mistake that breaks the default build would ship green |
+| Release package/rustdoc/dry-run gate | `verify` in `.github/workflows/release.yml`; see `RELEASE.md` |
 
 **Yes, the GitHub workflow is part of a Rust version bump:** keep `validate` on
 `stable` (auto-tracks latest), and update the `msrv` job + `Cargo.toml`

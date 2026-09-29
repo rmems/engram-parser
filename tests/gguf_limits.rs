@@ -30,6 +30,7 @@ fn expect_limit(err: ParserError, kind: ParseLimitKind, declared: u64, budget: u
     }
 }
 
+#[cfg(feature = "mmap")]
 fn error_payload(err: &ParserError) -> String {
     match err {
         ParserError::Io { source, .. } => format!("io:{source}"),

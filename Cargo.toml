@@ -1,6 +1,6 @@
 [package]
 name = "engram-parser"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.97.1"
 description = "Pure-Rust GGUF/Safetensors checkpoint parser and Mixture-of-Experts per-expert weight extractor. Default builds are zero-dependency (`fs::read` into `Vec<u8>`). Optional `mmap` feature adds memmap2. Packed dequant for Q8_0/Q5_K/Q6_K/IQ3_M. Off-by-default `safetensors` feature adds manifest/discovery plus raw tensor payload access via the upstream safetensors crate."

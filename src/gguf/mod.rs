@@ -4,7 +4,7 @@
 //!
 //! Entry point: [`load_gguf`] reads a `.gguf` file into a [`GgufLayout`]
 //! containing parsed metadata, a tensor directory, and the underlying
-//! byte buffer. Packed K-quant dequant helpers live in [`dequant`].
+//! byte buffer. Packed K-quant dequant helpers are re-exported from this module.
 //! Optional mmap-backed loading is behind the `mmap` feature.
 
 mod cursor;
