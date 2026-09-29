@@ -165,12 +165,16 @@ fn detect(path: &Path) -> Result<Detected> {
 
     let name = path
         .file_name()
-        .map(|n| n.to_string_lossy().to_ascii_lowercase())
+        .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
+    // Case-sensitive, matching `inspect_safetensors_checkpoint`, so a path
+    // detected here is one the Safetensors backend will actually accept.
     if name.ends_with(".safetensors") || name.ends_with(".safetensors.index.json") {
         return Ok(Detected::Safetensors);
     }
-    if name.ends_with(".gguf") {
+    // GGUF is identified by magic; the extension only routes a bad header
+    // to the GGUF parser so it can report it.
+    if name.to_ascii_lowercase().ends_with(".gguf") {
         return Ok(Detected::Gguf);
     }
     Err(ParserError::UnsupportedFormat {

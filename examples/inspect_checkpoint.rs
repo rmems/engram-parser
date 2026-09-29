@@ -23,6 +23,8 @@ use std::process::ExitCode;
 use engram_parser::{AnyCheckpoint, Checkpoint, Result, open_checkpoint};
 
 const DEFAULT_ROWS: usize = 32;
+/// Largest payload the probe will read (64 MiB).
+const PROBE_CAP_BYTES: usize = 64 * 1024 * 1024;
 
 struct Args {
     path: String,
@@ -109,12 +111,19 @@ fn report(ckpt: &dyn Checkpoint, rows: usize) -> Result<()> {
         println!("  {dtype:<12} {count:>6}  {bytes:>14}");
     }
 
-    // Smallest non-empty tensor keeps the payload probe cheap on huge checkpoints.
-    if let Some(probe) = tensors
+    // Probe the smallest non-empty tensor, and skip it past a size cap so
+    // owned (non-mmap) backends never allocate a huge buffer here.
+    let probe = tensors
         .iter()
         .filter(|t| t.byte_len > 0)
-        .min_by_key(|t| t.byte_len)
-    {
+        .min_by_key(|t| t.byte_len);
+    if let Some(big) = probe.filter(|t| t.byte_len > PROBE_CAP_BYTES) {
+        println!();
+        println!(
+            "payload probe skipped: smallest tensor '{}' is {} bytes (> {PROBE_CAP_BYTES})",
+            big.name, big.byte_len
+        );
+    } else if let Some(probe) = probe {
         let bytes = ckpt.tensor_bytes(&probe.name)?;
         assert_eq!(bytes.len(), probe.byte_len, "payload length mismatch");
         println!();

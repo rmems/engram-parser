@@ -162,8 +162,13 @@ fn build_catalog(
 fn gguf_source(path: &str, kind: SourceKind) -> CheckpointSource {
     let as_path = PathBuf::from(path);
     let (root, file) = match (kind, as_path.file_name()) {
+        // Same root rule as Safetensors: a bare filename resolves against `.`.
         (SourceKind::SingleFile, Some(name)) => (
-            as_path.parent().map(Path::to_path_buf).unwrap_or_default(),
+            as_path
+                .parent()
+                .filter(|parent| !parent.as_os_str().is_empty())
+                .unwrap_or_else(|| Path::new("."))
+                .to_path_buf(),
             name.to_string_lossy().into_owned(),
         ),
         _ => (PathBuf::new(), path.to_owned()),
@@ -205,7 +210,9 @@ fn normalize_dtype(dtype: DType, ggml_type: u32) -> TensorDType {
 }
 
 /// GGUF typed maps → owned values. Signed entries win over the unsigned
-/// shadow copy the parser also keeps. Arrays are not captured upstream.
+/// shadow copy the parser also keeps. Arrays are not captured upstream,
+/// and `general.alignment` is consumed as a layout field (see
+/// [`CheckpointMetadata`] docs), so neither appears here.
 fn metadata_values(metadata: &GgufMetadata) -> CheckpointMetadata {
     let mut out = CheckpointMetadata::new();
     for (key, value) in &metadata.strings {
@@ -267,5 +274,12 @@ mod tests {
         let file = gguf_source("/tmp/x/model.gguf", SourceKind::SingleFile);
         assert_eq!(file.files, vec!["model.gguf".to_string()]);
         assert_eq!(file.root, PathBuf::from("/tmp/x"));
+    }
+
+    #[test]
+    fn bare_filename_root_is_current_dir() {
+        let source = gguf_source("model.gguf", SourceKind::SingleFile);
+        assert_eq!(source.root, PathBuf::from("."));
+        assert_eq!(source.files, vec!["model.gguf".to_string()]);
     }
 }

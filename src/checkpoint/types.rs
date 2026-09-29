@@ -336,7 +336,10 @@ impl TensorInfo {
 /// GGUF numeric metadata is exposed as the parser stores it: unsigned and
 /// bool values as [`Self::UInt`], signed integers as [`Self::Int`], and
 /// floats at their stored width. GGUF arrays are not captured by the
-/// parser and are absent. Safetensors metadata is string-only.
+/// parser and are absent. `general.alignment` is a layout field rather
+/// than metadata: it is never listed (the parser cannot tell a declared
+/// value from the default 32); read the effective value from
+/// `GgufBackend::layout().alignment`. Safetensors metadata is string-only.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq)]
 pub enum MetadataValue {

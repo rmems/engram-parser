@@ -270,7 +270,7 @@ let raw = ckpt.tensor_bytes("token_embd.weight")?; // Cow<[u8]>, raw and undecod
 - **Dtypes:** scalar types normalize to shared `TensorDType` variants. GGML quantized layouts stay `TensorDType::GgufPacked { ggml_type }` with the exact wire code, and `TensorInfo::native_dtype` keeps the source label (`Q4_K`, `BF16`, …).
 - **Payloads:** bytes are returned exactly as stored, with length equal to `byte_len`. They are borrowed for GGUF and all mmap backends, and owned (bounded per-tensor read) for plain Safetensors.
 - **Location:** `source` is relative to `CheckpointSource::root`, `data_offset` is relative to the tensor-data section, and `file_offset` is absolute.
-- **Metadata:** GGUF scalars map to `MetadataValue::{String, UInt, Int, F32, F64}`; GGUF arrays are not captured (same as `GgufMetadata`). Safetensors metadata is the manifest's flattened string map.
+- **Metadata:** GGUF scalars map to `MetadataValue::{String, UInt, Int, F32, F64}`; GGUF arrays are not captured (same as `GgufMetadata`), and `general.alignment` is a layout field (`layout().alignment`), not a metadata entry. Safetensors metadata is the manifest's flattened string map.
 
 | Backend | Wraps | Feature | Payload |
 |---|---|---|---|

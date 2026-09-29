@@ -195,6 +195,22 @@ fn open_checkpoint_rejects_unknown_and_bad_gguf() {
     ));
 }
 
+/// Detection must use the same case-sensitive suffix rules as the
+/// Safetensors backend, so a name it cannot open is rejected up front
+/// (and never reported as `FeatureDisabled`).
+#[test]
+fn uppercase_safetensors_suffix_is_unsupported() {
+    let dir = temp_dir("st-upper");
+    for name in ["model.SAFETENSORS", "model.Safetensors.Index.Json"] {
+        let path = dir.0.join(name);
+        fs::write(&path, b"{}").unwrap();
+        match open_checkpoint(&path).unwrap_err() {
+            ParserError::UnsupportedFormat { .. } => {}
+            other => panic!("{name}: expected UnsupportedFormat, got {other}"),
+        }
+    }
+}
+
 #[cfg(not(feature = "safetensors"))]
 #[test]
 fn safetensors_input_without_feature_is_explicit() {
