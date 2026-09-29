@@ -9,6 +9,20 @@ This work targets **v0.3.0, the first public crates.io publication**. Version
 
 ### Added
 
+- **Format-independent checkpoint API ([RM-1784](https://linear.app/rpd-34/issue/RM-1784) / #87):**
+  new `checkpoint` module (default features, re-exported at the root)
+  with an object-safe `Checkpoint` trait and engram-owned
+  `CheckpointSource`, `TensorInfo`, `TensorDType`, `TensorShape`,
+  `TensorLocation`, and `MetadataValue` types. The `GgufBackend` /
+  `GgufMmapBackend` / `SafetensorsBackend` / `SafetensorsMmapBackend`
+  adapters wrap the existing handles, which stay reachable via
+  `layout()` / `checkpoint()`. `open_checkpoint` (and
+  `open_checkpoint_mmap`) detect the format by path type, `GGUF` magic,
+  and Safetensors extensions and return `AnyCheckpoint`. Shared shapes
+  are outermost-first (GGUF dims reversed, native order recoverable);
+  GGML quantized layouts stay `TensorDType::GgufPacked { ggml_type }`;
+  payloads are raw `Cow<[u8]>`. Adds `ParserError::FeatureDisabled` and
+  the `inspect_checkpoint` example. Existing APIs are unchanged.
 - **Safetensors raw payload access ([RM-1783](https://linear.app/rpd-34/issue/RM-1783) / #86):**
   the `safetensors` feature now pulls the upstream `safetensors` crate
   (0.8) for canonical header validation and adds

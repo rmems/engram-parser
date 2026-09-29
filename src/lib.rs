@@ -28,6 +28,9 @@
 //!   tensor payload access via the upstream `safetensors` crate. Combine
 //!   with `--features mmap` for borrowed mmap-backed payload slices. No
 //!   Hugging Face `config.json` policy.
+//! - **Format-independent access**: [`Checkpoint`] + [`open_checkpoint`]
+//!   inventory tensors, read metadata, and fetch raw payloads from GGUF
+//!   or Safetensors without branching on format. See [`checkpoint`].
 //!
 //! # Example
 //!
@@ -49,6 +52,7 @@
 //! }
 //! ```
 
+pub mod checkpoint;
 pub mod error;
 pub mod gguf;
 pub mod moe;
@@ -56,6 +60,17 @@ pub mod moe;
 pub mod safetensors;
 
 // Re-export commonly used types at the crate root for convenience.
+#[cfg(feature = "safetensors")]
+pub use checkpoint::SafetensorsBackend;
+#[cfg(all(feature = "safetensors", feature = "mmap"))]
+pub use checkpoint::SafetensorsMmapBackend;
+pub use checkpoint::{
+    AnyCheckpoint, Checkpoint, CheckpointFormat, CheckpointMetadata, CheckpointSource, DimOrder,
+    GgufBackend, MetadataValue, SourceKind, TensorDType, TensorInfo, TensorLocation, TensorShape,
+    open_checkpoint,
+};
+#[cfg(feature = "mmap")]
+pub use checkpoint::{GgufMmapBackend, open_checkpoint_mmap};
 pub use error::{HostSizeField, ParseLimitKind, ParserError, Result};
 pub use gguf::{
     DType,
