@@ -594,10 +594,39 @@ pub fn f16_bits_to_f32(bits: u16) -> f32 {
 
 fn f16_payload_bits(exp: u32, mant: u32) -> u32 {
     match exp {
-        0 => mant,
+        0 if mant == 0 => 0,
+        0 => f16_subnormal_payload_bits(mant),
         31 => 0x7F800000 | mant,
         biased => ((biased + 127 - 15) << 23) | mant,
     }
+}
+
+/// Renormalize an f16 subnormal (`exp == 0`, `mant != 0`) into the matching
+/// f32 **normal** payload bits (exponent + mantissa fields, no sign).
+///
+/// `mant` is the incoming 10-bit half mantissa already left-shifted by 13, so
+/// its significant bits occupy positions 22..=13 of a 32-bit word. An f16
+/// subnormal has value `2^-14 * (m10 / 1024)` where `m10` is the raw 10-bit
+/// field (`1..=1023`). Equivalently the value is `2^-24 * m10`, always exactly
+/// representable in f32, so this is a lossless bit-level reinterpretation with
+/// no external math library.
+fn f16_subnormal_payload_bits(mant: u32) -> u32 {
+    // Recover the raw 10-bit half mantissa (1..=1023).
+    let m10 = mant >> 13;
+    // Highest set bit index within the 10-bit field (0..=9).
+    let msb = 31 - m10.leading_zeros();
+    // Number of left shifts needed to move that leading 1 into bit 10, so it
+    // becomes the implicit integer bit that f32's normal form drops.
+    let shift = 10 - msb;
+    // f16 subnormals share the effective exponent of the smallest normal:
+    // 2^-14. After shifting the mantissa left by `shift`, the represented value
+    // scales down by the same factor, so the f32 unbiased exponent is
+    // -14 - shift, i.e. biased exponent 127 - 14 - shift.
+    let f32_exp = 127 - 14 - shift;
+    // Drop the now-implicit leading bit and place the remaining 10 bits into the
+    // f32 mantissa field (bit 22 downwards).
+    let f32_mant = ((m10 << shift) & 0x03FF) << 13;
+    (f32_exp << 23) | f32_mant
 }
 
 // ---------------------------------------------------------------------------
@@ -903,5 +932,54 @@ mod tests {
                 "bits {bits:#06X}: {v}"
             );
         }
+    }
+
+    #[test]
+    fn f16_to_f32_denormals() {
+        // Smallest positive f16 denormal 0x0001 = 2^-24 (exactly representable).
+        assert_eq!(
+            f16_bits_to_f32(0x0001),
+            2f32.powi(-24),
+            "smallest denormal 0x0001"
+        );
+
+        // Largest f16 denormal 0x03FF = 2^-14 * (1023/1024), exact IEEE-754.
+        assert_eq!(
+            f16_bits_to_f32(0x03FF),
+            2f32.powi(-14) * (1023.0 / 1024.0),
+            "largest denormal 0x03FF"
+        );
+
+        // Negative denormal 0x8001 = -(2^-24).
+        assert_eq!(
+            f16_bits_to_f32(0x8001),
+            -(2f32.powi(-24)),
+            "negative denormal 0x8001"
+        );
+    }
+
+    #[test]
+    fn f16_to_f32_signed_zero_preserved() {
+        let pos_zero = f16_bits_to_f32(0x0000);
+        assert_eq!(pos_zero, 0.0);
+        assert!(pos_zero.is_sign_positive(), "+0 sign");
+
+        let neg_zero = f16_bits_to_f32(0x8000);
+        assert_eq!(neg_zero, 0.0);
+        assert!(neg_zero.is_sign_negative(), "-0 sign");
+    }
+
+    #[test]
+    fn f16_to_f32_normals_inf_nan_unchanged() {
+        // Normals unchanged.
+        assert_eq!(f16_bits_to_f32(0x3C00), 1.0);
+        assert_eq!(f16_bits_to_f32(0xBC00), -1.0);
+
+        // Infinities unchanged.
+        assert!(f16_bits_to_f32(0x7C00).is_infinite() && f16_bits_to_f32(0x7C00) > 0.0);
+        assert!(f16_bits_to_f32(0xFC00).is_infinite() && f16_bits_to_f32(0xFC00) < 0.0);
+
+        // NaN payload stays NaN.
+        assert!(f16_bits_to_f32(0x7E00).is_nan(), "0x7E00 NaN");
     }
 }
