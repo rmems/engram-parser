@@ -432,6 +432,26 @@ mod tests {
     }
 
     #[test]
+    fn q8_0_denormal_scale() {
+        // Packed-scale denormal path: f16 scale bits 0x0001 = 2^-24.
+        // Dequantized output must equal quant_i8 * 2^-24 (RM-1461).
+        let scale = 2f32.powi(-24);
+        let mut block = vec![0u8; Q8_0_BYTES];
+        block[0..2].copy_from_slice(&0x0001u16.to_le_bytes());
+        block[2] = 0;
+        block[3] = 1;
+        block[4] = (-1i8) as u8;
+        block[5] = 127;
+        block[6] = (-128i8) as u8;
+        let out = dequantize_q8_0(&block, &[32]).expect("q8_0 denormal scale");
+        assert_eq!(out.len(), 32);
+        for (i, &quant) in [0i8, 1, -1, 127, -128].iter().enumerate() {
+            assert_eq!(out[i], quant as f32 * scale, "quant {quant} at index {i}");
+        }
+        assert!(out[5..].iter().all(|&v| v == 0.0));
+    }
+
+    #[test]
     fn q8_0_corinth_unit_scale() {
         let mut block = vec![0u8; Q8_0_BYTES];
         block[0..2].copy_from_slice(&f16_one());
