@@ -375,7 +375,7 @@ cargo run --locked --example benchmark --profile bench --features bench,cuda
 | default-feature clippy, build, test | `default-features` in `.github/workflows/ci.yml` (GGUF-only, no optional dependencies) |
 | fmt, clippy, build, test (T0 only), clean-tree, llvm-cov | `validate` in `.github/workflows/ci.yml` (**stable** = latest) |
 | MSRV 1.97.1 fmt/clippy/build/test | `msrv` in `.github/workflows/ci.yml` (pinned `toolchain: "1.97.1"`) |
-| Security audit / Snyk | `.github/workflows/security.yml` (not required for every local edit) |
+| Security audit | `.github/workflows/security.yml` (not required for every local edit) |
 | Docker image | `Dockerfile` (`ARG RUST_VERSION=1.97.1`) + `.github/workflows/docker-build.yml` |
 | T1 real GGUF / T2 GPU | **Not in CI** — local pilots only |
 | Release package/rustdoc/dry-run gate | `verify` in `.github/workflows/release.yml`; see `RELEASE.md` |
