@@ -50,6 +50,13 @@ unexpected files.
 
 ## Remaining (maintainer, local)
 
+The [local Qwen release-preparation smoke](smoke/2026-10-02-local-qwen-release-prep.md)
+passed first and warm runs on Rust 1.99.0. It is pre-commit evidence;
+repeat the publication gate on the exact reviewed release commit before
+using the results to publish. The existing [Linear v0.3.0 release](https://linear.app/rpd-34/pipeline/engram-parser/release/first-cratesio-checkpoint-substrate-cf986d0537be)
+is the release record and should be marked Released only after registry and
+GitHub release verification.
+
 1. `cargo publish --locked` after the on-model test.
 2. Verify `engram-parser 0.3.0` on crates.io + docs.rs build.
 3. Dispatch the Release workflow with tag `v0.3.0` and the published commit SHA
