@@ -24,7 +24,7 @@ compute** in this repo (CUDA host-register belongs to `myelin-accelerator`).
 
 ## Toolchain
 
-- `rust-toolchain.toml`: channel `stable` with rustfmt, clippy, llvm-tools-preview.
+- `rust-toolchain.toml`: pinned Rust 1.99.0 with rustfmt, clippy, llvm-tools-preview.
 - MSRV **1.97.1** (`rust-version`). The CI `msrv` job repeats fmt/clippy/build/test on 1.97.1.
 - Features: `mmap` (`memmap2`), `safetensors` (upstream `safetensors` crate). Both off by default.
 - No GPU or system packages needed.
@@ -41,7 +41,7 @@ cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo build --all-features
 cargo test --all-features
-# MSRV job (RUSTUP_TOOLCHAIN=1.97.1 overrides rust-toolchain.toml)
+# MSRV job (RUSTUP_TOOLCHAIN=1.97.1 overrides pinned Rust 1.99.0)
 cargo +1.97.1 fmt --check
 cargo +1.97.1 clippy --all-targets --all-features -- -D warnings
 cargo +1.97.1 build --all-features

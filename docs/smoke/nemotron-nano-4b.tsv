@@ -1,0 +1,5 @@
+backbone.embeddings.weight	BF16	131072,3136	822083584	model.safetensors	28976
+backbone.layers.19.mixer.conv1d.weight	BF16	9728,1,4	77824	model.safetensors	2395370800
+backbone.layers.28.mixer.out_proj.weight	BF16	3136,7680	48168960	model.safetensors	4002126384
+backbone.layers.38.mixer.conv1d.bias	BF16	9728	19456	model.safetensors	5547179120
+lm_head.weight	BF16	131072,3136	822083584	model.safetensors	7125059056
