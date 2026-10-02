@@ -72,7 +72,9 @@ This crate **does not own**:
 - Transformer↔SNN orchestration/contracts → [`hybrid-fusion`](https://github.com/rmems/hybrid-fusion);
 - neuron/network dynamics → [`neuromod`](https://github.com/Limen-Neural/neuromod);
 - CUDA acceleration → [`myelin-accelerator`](https://github.com/Limen-Neural/myelin-accelerator);
-- end-to-end SAAQ experimentation → [`corinth-canal`](https://github.com/rmems/corinth-canal).
+- end-to-end SAAQ experimentation → [`corinth-canal`](https://github.com/rmems/corinth-canal);
+- GOZ1 / Grok-specific quantization policy → `grok-ozempic`;
+- ANN↔SNN mapping campaigns → `hybrid-fusion` / `corinth-canal`.
 
 **Allowed dependencies:** none on the default path. Cargo enables no crates unless `--features mmap` (optional `memmap2`) or `--features safetensors` (optional upstream `safetensors` crate, which transitively uses `serde`/`serde_json`). Engram-specific index JSON, manifest serialization, and duplicate-key detection stay in-crate.
 
@@ -86,6 +88,7 @@ This crate **does not own**:
 | `neuromod` | SNN neuron/network dynamics |
 | `myelin-accelerator` | Reusable CUDA kernels |
 | `corinth-canal` | Experimental end-to-end SAAQ reference/integration lab |
+| `grok-ozempic` | GOZ1 / Grok-specific quantization policy |
 
 ## Origin / modularization — GGUF (#7)
 
