@@ -15,7 +15,7 @@
 #
 # See .github/workflows/docker-build.yml and issue #9 for CI (GHCR on main).
 
-ARG RUST_VERSION=1.97.1
+ARG RUST_VERSION=1.99.0
 
 FROM rust:${RUST_VERSION}-slim
 

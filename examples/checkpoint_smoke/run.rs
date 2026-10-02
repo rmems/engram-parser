@@ -119,7 +119,7 @@ pub fn main() -> Result<()> {
     let input = File::open(path)?;
     require(
         input.metadata()?.is_file(),
-        "supply a GGUF file or explicit Safetensors index",
+        "supply a GGUF file, Safetensors file, or explicit Safetensors index",
     )?;
     Memory::read()?.report("file_open");
     let checkpoint = open_checkpoint_mmap(path)?;
@@ -129,23 +129,7 @@ pub fn main() -> Result<()> {
         "unexpected checkpoint format",
     )?;
     if format == CheckpointFormat::Safetensors {
-        require(
-            checkpoint.source().kind == SourceKind::ShardIndex,
-            "Safetensors smoke requires an explicit shard index",
-        )?;
-        require(
-            checkpoint.source().files.len() >= 2,
-            "Safetensors smoke requires multiple shards",
-        )?;
-        require(
-            expected
-                .iter()
-                .map(|e| &e.shard)
-                .collect::<BTreeSet<_>>()
-                .len()
-                >= 2,
-            "expected samples must span multiple shards",
-        )?;
+        validate_safetensors_source(&checkpoint, &expected)?;
     }
     let mut mapped_bytes = 0;
     let mut smallest_file = u64::MAX;
@@ -249,6 +233,42 @@ pub fn main() -> Result<()> {
     println!(
         "PASS borrowed payloads; metadata and bounded file reads agree; deterministic lookup; missing-resource errors; memory bounds"
     );
+    Ok(())
+}
+
+fn validate_safetensors_source(checkpoint: &dyn Checkpoint, expected: &[Expected]) -> Result<()> {
+    match checkpoint.source().kind {
+        SourceKind::SingleFile => {
+            require(
+                checkpoint.source().files.len() == 1,
+                "single-file Safetensors smoke requires one payload file",
+            )?;
+            require(
+                expected
+                    .iter()
+                    .all(|e| e.shard == checkpoint.source().files[0]),
+                "expected samples must name the single payload file",
+            )?;
+        }
+        SourceKind::ShardIndex => {
+            require(
+                checkpoint.source().files.len() >= 2,
+                "Safetensors shard-index smoke requires multiple shards",
+            )?;
+            require(
+                expected
+                    .iter()
+                    .map(|e| &e.shard)
+                    .collect::<BTreeSet<_>>()
+                    .len()
+                    >= 2,
+                "expected samples must span multiple shards",
+            )?;
+        }
+        _ => {
+            return Err("Safetensors smoke requires a single file or explicit shard index".into());
+        }
+    }
     Ok(())
 }
 
