@@ -49,8 +49,8 @@ cargo +1.97.1 test --all-features
 ```
 
 Coverage: `cargo llvm-cov --all-targets --all-features --locked --lcov --output-path lcov.info`.
-The release/publication gate and its ordering are in `RELEASE.md` and `release.yml`
-(`cargo package --locked`, `cargo publish --dry-run --locked`). Per `RELEASE.md`, never create or
+The release/publication gate and its ordering are in `RELEASE.md` and
+`.github/workflows/release.yml` (`cargo package --locked`, `cargo publish --dry-run --locked`). Per `RELEASE.md`, never create or
 push a release tag by hand.
 
 ## Conventions visible in the repo
