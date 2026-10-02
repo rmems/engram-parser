@@ -1,0 +1,19 @@
+README.md
+  s_da32682410c56c::t_756f55b8ea0080 20-22,43-55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f66d54cba9be8dd3530d2c931700cfe17139bae8",
+  "prompts": {},
+  "sessions": {
+    "s_da32682410c56c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0fac2-7243-7ff2-b027-3fb599c71a16",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
