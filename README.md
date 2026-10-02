@@ -24,16 +24,28 @@ v0.3.0 is not yet published to crates.io. Until publication completes, use a git
 engram-parser = { git = "https://github.com/rmems/engram-parser", rev = "<commit-or-tag>" }
 ```
 
-Once published (see [Releases](#releases)):
+Once published (see [Releases](#releases)), pick one — GGUF only, no dependencies enabled by default:
 
 ```toml
 [dependencies]
-engram-parser = "0.3"            # GGUF only, no dependencies enabled by default
-engram-parser = { version = "0.3", features = ["safetensors"] }          # + Safetensors
-engram-parser = { version = "0.3", features = ["safetensors", "mmap"] }  # + borrowed mmap payloads
+engram-parser = "0.3"
 ```
 
-or `cargo add engram-parser` (add `--features safetensors` / `mmap` as needed).
+with Safetensors support:
+
+```toml
+[dependencies]
+engram-parser = { version = "0.3", features = ["safetensors"] }
+```
+
+or with Safetensors plus borrowed mmap payloads:
+
+```toml
+[dependencies]
+engram-parser = { version = "0.3", features = ["safetensors", "mmap"] }
+```
+
+Equivalently: `cargo add engram-parser` (add `--features safetensors` / `mmap` as needed).
 
 | Feature | Adds | Enables |
 |---|---|---|
