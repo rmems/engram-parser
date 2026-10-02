@@ -21,8 +21,9 @@
 //!
 //! # Features
 //!
-//! - **Zero dependencies by default**: the default path is pure Rust with an
-//!   empty `[dependencies]`. The optional `mmap` feature adds `memmap2`.
+//! - **No dependencies enabled by default**: the default path is pure Rust.
+//!   The optional `mmap` feature adds `memmap2`; `safetensors` adds the
+//!   upstream `safetensors` crate.
 //! - **Parse limits**: [`ParseLimits`] is a documented budget for KV/tensor
 //!   counts, string sizes, array work, tensor rank, and metadata bytes.
 //!   File-declared `u64` sizes convert with [`HostSizeField`] errors.

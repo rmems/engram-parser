@@ -7,8 +7,8 @@
 //! validation. Engram keeps ownership of checkpoint discovery, shard
 //! path policy, deterministic manifests, MoE candidate discovery, and
 //! raw tensor payload access; upstream types are not part of the public
-//! API. Corinth-specific `config` (HF `config.json`) policy is not
-//! ported.
+//! API. Hugging Face `config.json` policy is intentionally not ported:
+//! this crate models containers, not model-configuration conventions.
 //!
 //! ```no_run
 //! use engram_parser::safetensors::inspect_safetensors_checkpoint;

@@ -19,8 +19,8 @@
 //!   cargo test --test real_gguf real_gguf_moe -- --ignored --nocapture
 //! ```
 //!
-//! GPU / kernel experiments on the same weights belong in
-//! `~/rmems/blackwell-kernel-lab` (or myelin-accelerator), not this crate.
+//! GPU / kernel experiments on the same weights are out of scope for this
+//! crate.
 
 use std::env;
 use std::fs;

@@ -82,9 +82,8 @@ pub const GGML_TYPE_BF16: u32 = 30;
 /// GGUF wire type 31: historical `Q4_0_4_4` layout (removed from current ggml).
 ///
 /// Must **not** be treated as an IQ3_M block type. HuggingFace “IQ3_M” is a
-/// mixed-quant *preset*, not wire id 31. Corinth-canal documents the same
-/// mapping (`GGML_TYPE_Q4_0_4_4 = 31`); its 111-byte IQ3_M path is an
-/// **internal** non-wire id only.
+/// mixed-quant *preset*, not wire id 31; the 111-byte IQ3_M path is an
+/// **internal** non-wire id only (see [`GGML_TYPE_IQ3_M_BLOCK`]).
 pub const GGML_TYPE_Q4_0_4_4: u32 = 31;
 /// Internal id for the 111-byte IQ3_M *block layout* decoder only.
 ///
