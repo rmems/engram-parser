@@ -12,18 +12,23 @@ mod common;
 use common::*;
 
 use engram_parser::{
-    DType, dequantize_iq3_m, dequantize_packed, dequantize_q5_k, dequantize_q6_k, dequantize_q8_0,
-    load_gguf, load_gguf_mmap, os_page_size, parse_bytes,
+    DType, ParserError, dequantize_iq3_m, dequantize_packed, dequantize_q5_k, dequantize_q6_k,
+    dequantize_q8_0, load_gguf, load_gguf_mmap, os_page_size, parse_bytes,
 };
 use std::fs;
+#[cfg(unix)]
 use std::fs::OpenOptions;
+#[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
-use std::path::{Path, PathBuf};
+#[cfg(unix)]
+use std::path::Path;
+use std::path::PathBuf;
 use std::process;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// 2 GiB sparse payload — large enough to be a multi-GB checkpoint stand-in
 /// without allocating RSS (ext4 hole).
+#[cfg(unix)]
 const SPARSE_PAYLOAD_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 fn write_temp_gguf(bytes: &[u8]) -> PathBuf {
@@ -82,6 +87,7 @@ fn iq3_m_scaled_block() -> Vec<u8> {
 }
 
 /// Header-only GGUF whose F32 payload is a sparse hole of `n_elements * 4` bytes.
+#[cfg(unix)]
 fn write_sparse_f32_gguf(path: &Path, n_elements: u64) -> u64 {
     let mut out = Vec::new();
     out.extend_from_slice(&GGUF_MAGIC);
@@ -169,6 +175,29 @@ fn mmap_matches_owned_parse_on_tiny_gguf() {
             "page start aligned or first-page file",
         ),
     ]);
+}
+
+#[test]
+fn truncated_tensor_payload_fails_at_open_for_owned_and_mmap() {
+    let tensor = TensorSpec {
+        name: "truncated.weight",
+        dims: vec![4],
+        ggml_type: GGML_F32,
+        payload: f32_vec_to_le_bytes(&[1.0, 2.0, 3.0, 4.0]),
+    };
+    let mut bytes = build_gguf(&[], &[tensor]);
+    bytes.pop();
+    let path = write_temp_gguf(&bytes);
+    let _guard = TempGuard(path.clone());
+
+    assert!(matches!(
+        load_gguf(&path),
+        Err(ParserError::InvalidLayout { .. })
+    ));
+    assert!(matches!(
+        load_gguf_mmap(&path),
+        Err(ParserError::InvalidLayout { .. })
+    ));
 }
 
 #[test]
@@ -336,6 +365,7 @@ fn mmap_dequant_matches_owned_for_k_quants() {
     ]);
 }
 
+#[cfg(unix)]
 #[test]
 fn mmap_sparse_multi_gib_does_not_require_owned_read() {
     let n_elements = SPARSE_PAYLOAD_BYTES / 4;

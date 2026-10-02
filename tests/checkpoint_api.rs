@@ -16,8 +16,29 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use common::{GGML_F32, GGML_Q8_0, KvValue, TensorSpec, build_gguf, f32_vec_to_le_bytes};
 use engram_parser::{
     Checkpoint, CheckpointFormat, DimOrder, GgufBackend, MetadataValue, ParserError, SourceKind,
-    TensorDType, list_experts, open_checkpoint,
+    TensorDType, TensorShape, list_experts, open_checkpoint,
 };
+
+#[test]
+fn tensor_shape_counts_scalar_empty_and_overflow_without_wrapping() {
+    assert_eq!(
+        TensorShape::outermost_first(vec![]).element_count(),
+        Some(1)
+    );
+    assert_eq!(
+        TensorShape::outermost_first(vec![0, 7]).element_count(),
+        Some(0)
+    );
+    assert_eq!(
+        TensorShape::outermost_first(vec![usize::MAX, 2]).element_count(),
+        None
+    );
+
+    let gguf_shape = TensorShape::from_innermost_first(&[4096, 32000]);
+    assert_eq!(gguf_shape.dims(), &[32000, 4096]);
+    assert_eq!(gguf_shape.native_dims(), vec![4096, 32000]);
+    assert_eq!(gguf_shape.element_count(), Some(32000 * 4096));
+}
 
 struct TestDir(PathBuf);
 

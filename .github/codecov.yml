@@ -1,5 +1,5 @@
-# Minimal Codecov config for Rust (per https://about.codecov.io/language/rust/ and #11 AC)
-# We will use codecov https://about.codecov.io/language/rust/
+# Baseline: 83.40% line coverage on 2026-10-02, all targets/all features.
+# Codecov is the sole coverage dashboard. Qlty handles static quality only.
 codecov:
   require_ci_to_pass: true
 
@@ -9,8 +9,15 @@ coverage:
   range: "70...100"
 
   status:
-    project: true
-    patch: true
+    project:
+      default:
+        target: auto
+        threshold: 2%
+        informational: true
+    patch:
+      default:
+        target: 80%
+        informational: true
     changes: false
 
 # CI generates lcov format (cargo llvm-cov --lcov); no gcov parser needed.

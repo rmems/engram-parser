@@ -6,6 +6,7 @@
 use engram_parser::safetensors::{open_safetensors_checkpoint, open_safetensors_checkpoint_mmap};
 use std::fs::{self, File};
 use std::io::Write;
+#[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -85,6 +86,48 @@ fn mmap_sharded_checkpoint_reads_both_shards() {
     assert_eq!(mapped.tensor_bytes("b.weight").unwrap(), &[5, 6, 7, 8]);
 }
 
+#[test]
+fn mmap_sharded_open_rejects_bad_second_shard_then_recovers() {
+    let dir = temp_dir("bad-second-shard");
+    let first = dir.0.join("model-00001-of-00002.safetensors");
+    let second = dir.0.join("model-00002-of-00002.safetensors");
+    let index = dir.0.join("model.safetensors.index.json");
+    write_safetensors(
+        &first,
+        r#"{"a.weight":{"dtype":"U8","shape":[4],"data_offsets":[0,4]}}"#,
+        &[1, 2, 3, 4],
+    );
+    write_safetensors(
+        &second,
+        r#"{"b.weight":{"dtype":"U8","shape":[4],"data_offsets":[0,4]}}"#,
+        &[5, 6],
+    );
+    fs::write(
+        &index,
+        r#"{"weight_map":{"a.weight":"model-00001-of-00002.safetensors","b.weight":"model-00002-of-00002.safetensors"}}"#,
+    )
+    .unwrap();
+
+    let error = open_safetensors_checkpoint_mmap(&index).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("model-00002-of-00002.safetensors"),
+        "bad second shard must be identified: {error}"
+    );
+
+    // Failed open must not retain a partial mapping or an inaccessible shard.
+    write_safetensors(
+        &second,
+        r#"{"b.weight":{"dtype":"U8","shape":[4],"data_offsets":[0,4]}}"#,
+        &[5, 6, 7, 8],
+    );
+    let checkpoint = open_safetensors_checkpoint_mmap(&index).unwrap();
+    assert_eq!(checkpoint.tensor_bytes("a.weight").unwrap(), &[1, 2, 3, 4]);
+    assert_eq!(checkpoint.tensor_bytes("b.weight").unwrap(), &[5, 6, 7, 8]);
+}
+
+#[cfg(unix)]
 #[test]
 fn mmap_sparse_large_shard_maps_without_full_read() {
     // 1 GiB tensor payload in a sparse file: the checkpoint maps the file

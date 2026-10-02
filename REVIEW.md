@@ -135,9 +135,8 @@ There is no `rustfmt.toml` in this repo; defaults are fine.
 | `test` | `cargo test --all-features` | Unit (`src/gguf/tensor.rs`), smoke (`tests/gguf_smoke.rs`), doctests |
 | `test` (default) | `cargo test` | GGUF-only unit, integration, and doc tests pass independently |
 | `clean-tree` | `git status --porcelain` empty | No stray outputs after build/test |
-| `coverage` (opt) | `cargo llvm-cov --all-targets --all-features --locked --lcov --output-path lcov.info` | LCOV for Codecov (CI installs `cargo-llvm-cov`) |
+| `coverage` (CI) | `cargo llvm-cov --all-targets --all-features --locked --lcov --output-path coverage.lcov` | Downloadable LCOV artifact and Codecov project/patch feedback |
 | `msrv` (opt) | toolchain **1.97.1** + same fmt/clippy/build/test | Matches `rust-version` / CI `msrv` job |
-| `docker` (opt) | `docker build -t engram-parser .` then `docker run --rm engram-parser` | Image uses `RUST_VERSION=1.97.1` |
 
 ### Coverage (local)
 
@@ -376,13 +375,14 @@ cargo run --locked --example benchmark --profile bench --features bench,cuda
 | fmt, clippy, build, test (T0 only), clean-tree, llvm-cov | `validate` in `.github/workflows/ci.yml` (**stable** = latest) |
 | MSRV 1.97.1 fmt/clippy/build/test | `msrv` in `.github/workflows/ci.yml` (pinned `toolchain: "1.97.1"`) |
 | Security audit | `.github/workflows/security.yml` (not required for every local edit) |
-| Docker image | `Dockerfile` (`ARG RUST_VERSION=1.97.1`) + `.github/workflows/docker-build.yml` |
+| OS test matrix | `.github/workflows/ci.yml` runs default/all features on Linux, Windows, macOS |
 | T1 real GGUF / T2 GPU | **Not in CI** — local pilots only |
 | Release package/rustdoc/dry-run gate | `verify` in `.github/workflows/release.yml`; see `RELEASE.md` |
 
 **Yes, the GitHub workflow is part of a Rust version bump:** keep `validate` on
 `stable` (auto-tracks latest), and update the `msrv` job + `Cargo.toml`
-`rust-version` + Docker tag together whenever you raise the floor.
+Keep the declared `rust-version`, MSRV job, and pinned build toolchain aligned
+with their separate roles when changing Rust versions.
 
 ---
 

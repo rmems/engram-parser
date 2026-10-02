@@ -14,6 +14,45 @@ use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[cfg(feature = "mmap")]
+#[test]
+fn mmap_upstream_failures_keep_distinct_public_error_categories() {
+    use ::safetensors::SafeTensorError as E;
+
+    let path = Path::new("bad.safetensors");
+    let missing = super::map::safetensors_error(path, E::TensorNotFound("lost".into()));
+    assert!(matches!(
+        missing,
+        ParserError::MissingTensor { name, path } if name == "lost" && path == "bad.safetensors"
+    ));
+
+    let invalid_utf8 = String::from_utf8(vec![0xff]).unwrap_err().utf8_error();
+    let malformed = super::map::safetensors_error(path, E::InvalidHeader(invalid_utf8));
+    assert!(matches!(
+        malformed,
+        ParserError::UnsupportedFormat { path, .. } if path == "bad.safetensors"
+    ));
+
+    let invalid_offsets = super::map::safetensors_error(path, E::InvalidOffset("w".into()));
+    assert!(matches!(
+        invalid_offsets,
+        ParserError::InvalidLayout { path, .. } if path == "bad.safetensors"
+    ));
+
+    let io = super::map::safetensors_error(
+        path,
+        E::IoError(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "truncated",
+        )),
+    );
+    assert!(matches!(
+        io,
+        ParserError::Io { path, source }
+            if path == "bad.safetensors" && source.kind() == std::io::ErrorKind::UnexpectedEof
+    ));
+}
+
 struct TestDir(PathBuf);
 
 impl Deref for TestDir {
