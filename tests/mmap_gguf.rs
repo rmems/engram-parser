@@ -24,6 +24,7 @@ use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// 2 GiB sparse payload — large enough to be a multi-GB checkpoint stand-in
@@ -32,12 +33,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const SPARSE_PAYLOAD_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 fn write_temp_gguf(bytes: &[u8]) -> PathBuf {
+    static NEXT_ID: AtomicU64 = AtomicU64::new(0);
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock")
         .as_nanos();
-    let path =
-        std::env::temp_dir().join(format!("engram-parser-mmap-{}-{nanos}.gguf", process::id()));
+    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+    let path = std::env::temp_dir().join(format!(
+        "engram-parser-mmap-{}-{nanos}-{id}.gguf",
+        process::id()
+    ));
     fs::write(&path, bytes).expect("write temp gguf");
     path
 }
