@@ -1,8 +1,8 @@
 # engram-parser
 
 [![CI](https://github.com/rmems/engram-parser/actions/workflows/ci.yml/badge.svg)](https://github.com/rmems/engram-parser/actions/workflows/ci.yml)
-[![Rust 1.99.0](https://img.shields.io/badge/Rust-1.99.0-orange)](rust-toolchain.toml)
-[![MSRV 1.97.1](https://img.shields.io/badge/MSRV-1.97.1-blue)](Cargo.toml)
+[![Rust 1.99.0](https://img.shields.io/badge/Rust-1.99.0-orange)](https://github.com/rmems/engram-parser/blob/main/rust-toolchain.toml)
+[![MSRV 1.97.1](https://img.shields.io/badge/MSRV-1.97.1-blue)](https://github.com/rmems/engram-parser/blob/main/Cargo.toml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
 
 Pure-Rust **GGUF + Safetensors checkpoint/tensor substrate** with optional format-specific helpers and model-analysis modules.
