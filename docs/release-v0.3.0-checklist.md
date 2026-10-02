@@ -32,12 +32,15 @@ close the gate. A dry run's explicit upload-aborted notice is expected.
 
 ## Audit snapshot — 2026-10-02
 
-The following measurements belong only to
-[`485f0445a93c1ec06e8142a2d602c33030d753d7`](https://github.com/rmems/engram-parser/commit/485f0445a93c1ec06e8142a2d602c33030d753d7),
-which preceded this documentation fix. They came from a clean temporary Git
-clone, with Rust 1.99.0 / Cargo 1.99.0. The crate's declared MSRV is 1.97.1.
+Compile, test, rustdoc, and hosted-CI results below were measured on
+[`485f0445a93c1ec06e8142a2d602c33030d753d7`](https://github.com/rmems/engram-parser/commit/485f0445a93c1ec06e8142a2d602c33030d753d7)
+with Rust 1.99.0 / Cargo 1.99.0. The crate's declared MSRV is 1.97.1. This
+documentation fix does not change crate source, so those results still describe
+the code, but the hosted run URLs belong to `485f044`, not to this commit.
+Archive measurements are recorded separately because the README change changes
+the crate bytes.
 
-| Check on that snapshot | Result |
+| Check on `485f044` | Result |
 | --- | --- |
 | Formatting, default/all-feature Clippy with warnings denied, default/all-feature builds | Passed |
 | Default-feature tests | 123 passed, 2 opt-in pilots ignored |
@@ -50,10 +53,13 @@ clone, with Rust 1.99.0 / Cargo 1.99.0. The crate's declared MSRV is 1.97.1.
 | Hosted OS matrix, MSRV, coverage, and quality | [Passed](https://github.com/rmems/engram-parser/actions/runs/37036534538) |
 | Hosted RustSec audit | [Passed](https://github.com/rmems/engram-parser/actions/runs/37036534413) |
 
-The snapshot's archive had **41 entries**, **105,118 compressed bytes**
-(102.7 KiB; Cargo reported 421.3 KiB packaged), and SHA256
-`56ea5ac857ac8bacd6a259b2dea6349867cf3b4e7651ee29a9a0d002bb81fb5c`.
-Its `.cargo_vcs_info.json` named the snapshot SHA. Inspection found only
+A clean `cargo package --locked` of the README change (Rust 1.99.0 / Cargo
+1.99.0) produced **41 entries** and Cargo's reported **421.6 KiB packaged /
+102.7 KiB compressed**. Do not treat a recorded SHA256 as acceptance evidence
+for a later commit: Cargo embeds that commit in `.cargo_vcs_info.json`, so the
+archive checksum changes even when this checklist — which is not packaged —
+is the only edit. On each candidate, confirm the VCS SHA matches the commit
+being packaged. Inspection of the README-changed archive found only
 allowlisted/Cargo-managed paths, no symlinks, and no private-key headers.
 This is a bounded archive inspection, not a claim that every possible secret
 pattern was audited. The README includes the intended public Codecov badge
