@@ -21,6 +21,11 @@ default = []
 mmap = ["dep:memmap2"]
 safetensors = ["dep:safetensors"]
 
+[[example]]
+name = "checkpoint_smoke"
+required-features = ["mmap", "safetensors"]
+test = true
+
 [profile.release]
 opt-level = 3
 lto = true
