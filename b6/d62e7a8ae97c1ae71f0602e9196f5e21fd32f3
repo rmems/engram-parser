@@ -1,0 +1,21 @@
+tests/safetensors_payload.rs
+  s_da32682410c56c::t_9572e62d3ebbbc 222-223,291-292
+docs/coverage-and-quality.md
+  s_da32682410c56c::t_709616066d3638 10-11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b6d62e7a8ae97c1ae71f0602e9196f5e21fd32f3",
+  "prompts": {},
+  "sessions": {
+    "s_da32682410c56c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0fac2-7243-7ff2-b027-3fb599c71a16",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
