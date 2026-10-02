@@ -11,8 +11,9 @@ tag for it, or create a GitHub Release for it.
 Start from a clean commit on `main` whose `Cargo.toml`, `Cargo.lock`, and
 changelog all identify the intended version. Run `rustup check`, then record
 `rustc --version` and `cargo --version` to confirm that the release gate uses
-the latest stable Rust. Keep `rust-version = "1.97.1"` and the separate MSRV CI
-job: the compiler used to publish need not raise the minimum for consumers.
+the pinned Rust 1.99.0 toolchain. Keep `rust-version = "1.97.1"` and the
+separate MSRV CI job: the compiler used to publish need not raise the minimum
+for consumers.
 Run every command below:
 
 ```bash

@@ -4,7 +4,8 @@ This is an **opt-in Linux, CPU-only** release smoke, not a throughput benchmark.
 Normal tests do not download models, run the smoke executable, or need GPUs.
 The example requires both `mmap` and `safetensors`; it adds no dependencies.
 Existing GGUF mmap, sparse-file, K-quant and cross-format parity tests remain in
-place. Track the work in [RM-1794](https://linear.app/rpd-34/issue/RM-1794/bench-add-large-checkpoint-mmap-and-sharded-safetensors-smoke-coverage).
+place. Safetensors smoke accepts a single file or an explicit multi-shard
+index. Track the work in [RM-1794](https://linear.app/rpd-34/issue/RM-1794/bench-add-large-checkpoint-mmap-and-sharded-safetensors-smoke-coverage).
 
 ## Run with local fixtures
 
@@ -21,6 +22,9 @@ set -o pipefail
 ./target/release/examples/checkpoint_smoke safetensors \
   /models/phi/model.safetensors.index.json docs/smoke/phi3.tsv 128 64 \
   | tee /tmp/safetensors-smoke.txt
+./target/release/examples/checkpoint_smoke safetensors \
+  /models/nemotron/model.safetensors docs/smoke/nemotron-nano-4b.tsv 128 64 \
+  | tee /tmp/nemotron-smoke.txt
 ```
 
 The last two required arguments are **maximum resident growth in MiB** and
@@ -37,6 +41,7 @@ The sample TSV files match these exact public upstream artifacts:
 |---|---|---|---|
 | GGUF | [Qwen/Qwen2.5-1.5B-Instruct-GGUF](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/tree/91cad51170dc346986eccefdc2dd33a9da36ead9) | `qwen2.5-1.5b-instruct-q8_0.gguf`, locally named `qwen.gguf` | Apache-2.0 |
 | Safetensors | [microsoft/Phi-3-mini-4k-instruct](https://huggingface.co/microsoft/Phi-3-mini-4k-instruct/tree/f39ac1d28e925b323eae81227eaba4464caced4e) | `model.safetensors.index.json` and both referenced shards | MIT |
+| Safetensors single file | [nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16](https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16/tree/dfaf35de3e30f1867dd8dbc38a7fc9fb52d3914f) | `model.safetensors` | NVIDIA Nemotron Open Model License |
 
 Download only when explicitly running the smoke, outside the checkout. Review
 upstream licenses and model cards before redistributing model artifacts. This
@@ -65,15 +70,18 @@ Supply a UTF-8 TSV containing six tab-separated fields per row:
 Dimensions are comma-separated decimal integers, or `scalar` for rank zero.
 Comments start with `#`. Names must be unique. Supply at least three tensors,
 spread over early/middle/late payload offsets, including packed types for a
-quantized GGUF. For Safetensors select early/middle/late tensors in at least two
-shards. The executable requires multiple actual shards and samples from at
-least two of them. The checked-in selections cover both ends of each fixture.
+quantized GGUF. For an indexed Safetensors checkpoint select early/middle/late
+tensors in at least two shards; the executable requires multiple actual shards
+and samples from at least two of them. For a single-file Safetensors checkpoint
+select early/middle/late tensors from that file. The checked-in selections
+cover both ends of each fixture.
 
 Obtain expectations from an independent header inspection or a trusted fixture
 manifest, not by copying this executable's inventory output. For GGUF, reverse
 native dimensions; compute packed lengths from the GGML block layout and add
-the aligned data-section start to the directory offset. For Safetensors, verify
-each name against the index's `weight_map`, then read its shard header: absolute
+the aligned data-section start to the directory offset. For indexed
+Safetensors, verify each name against the index's `weight_map`, then read its
+shard header. For a single file, read that file's header directly. Absolute
 offset is `8 + header_length + data_offsets[0]` and byte length is the offset
 span (also check shape × dtype size). The checked-in TSVs were derived with
 Python `struct`/`json` header reads independently of the Rust checkpoint API.
@@ -147,7 +155,8 @@ system-wide page-cache growth or claim whole-file integrity.
 
 Missing tensor lookup must yield `MissingTensor`. Missing-shard validation uses
 an isolated temporary index pointing at an absent shard and requires
-`MissingShard`; the user's checkpoint is never mutated. This checks an absent
+`MissingShard`; the user's checkpoint is never mutated, including for a
+single-file smoke. This checks an absent
 shard at open time, not removal of a file already mapped into a running process.
 
 ### Access-path copy audit
@@ -176,7 +185,9 @@ hashes, license/provenance, TSVs, exact commands, cache conditions, phase memory
 pass/fail and limitations. Include both first and warm fresh-process runs.
 Do not commit checkpoints or generated large artifacts. See
 [the initial report](smoke/2026-10-02.md) and
-[PR review follow-up](smoke/2026-10-02-review-followup.md).
+[PR review follow-up](smoke/2026-10-02-review-followup.md), plus the
+[local Nemotron single-file run](smoke/2026-10-02-local-nemotron.md) and
+[local Ollama Granite GGUF run](smoke/2026-10-02-local-ollama-granite.md).
 
 Lightweight harness checks can be run explicitly with:
 

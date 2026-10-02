@@ -404,7 +404,7 @@ have succeeded.
 **MSRV: Rust 1.97.1.**
 
 - Declared through `rust-version` in `Cargo.toml`.
-- Tested in CI alongside stable.
+- Tested in CI alongside the pinned Rust 1.99.0 build toolchain.
 - MSRV bumps require justification and are treated as compatibility-significant changes.
 
 See [#14](https://github.com/rmems/engram-parser/issues/14).

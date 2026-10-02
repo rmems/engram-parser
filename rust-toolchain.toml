@@ -1,6 +1,5 @@
-# Local / rustup default for this crate.
-# channel = stable always tracks the latest stable release.
-# MSRV (Cargo.toml rust-version / CI msrv job) is the *minimum* supported version.
+# Pinned release and development toolchain for this crate.
+# MSRV (Cargo.toml rust-version / CI msrv job) remains the minimum supported version.
 [toolchain]
-channel = "stable"
+channel = "1.99.0"
 components = ["rustfmt", "clippy", "llvm-tools-preview"]
