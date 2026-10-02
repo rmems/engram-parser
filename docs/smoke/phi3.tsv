@@ -1,0 +1,8 @@
+# microsoft/Phi-3-mini-4k-instruct @ f39ac1d28e925b323eae81227eaba4464caced4e
+# name	native dtype	outermost-first shape	bytes	shard	absolute offset
+model.embed_tokens.weight	BF16	32064,3072	197001216	model-00001-of-00002.safetensors	14960
+model.layers.18.post_attention_layernorm.weight	BF16	3072	6144	model-00001-of-00002.safetensors	2613064304
+model.layers.9.self_attn.qkv_proj.weight	BF16	9216,3072	56623104	model-00001-of-00002.safetensors	4915866224
+lm_head.weight	BF16	32064,3072	197001216	model-00002-of-00002.safetensors	7816
+model.layers.26.post_attention_layernorm.weight	BF16	3072	6144	model-00002-of-00002.safetensors	1461659272
+model.norm.weight	BF16	3072	6144	model-00002-of-00002.safetensors	2669686408

@@ -393,3 +393,11 @@ Local tool dirs (`.claude/`, `.opencode/`, `docs/superpowers/`, etc.),
 create tracked files; if `git status` is dirty after the gate, fix the
 cause before merge (or ensure only intentional source edits are staged).
 Do not commit `lcov.info`, large GGUFs, or GPU profile dumps into this repo.
+
+## Large checkpoint mmap release smoke (RM-1794)
+
+Before release, run the opt-in Linux [checkpoint smoke](docs/checkpoint-smoke.md)
+for a large GGUF and an indexed, multi-shard Safetensors fixture. Record first
+and warm runs, fixture provenance, sample expectations, memory bounds and the
+access-path copy audit under `docs/smoke/`. Normal CI remains fixture-free; the
+existing mmap/K-quant tests remain required.

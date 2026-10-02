@@ -367,6 +367,9 @@ cargo run --example inspect_gguf -- ~/.models/gguf/.../model.gguf
 
 For directory scans, `ENGRAM_GGUF_MAX`, and MoE extraction sample counts, see [the T1 pilot guidance in `REVIEW.md`](REVIEW.md#t1--real-gguf-pilots-this-repo-cpu-only).
 
+Opt-in large GGUF and multi-shard Safetensors mmap validation, fixture inputs,
+memory bounds and reproducible release reports: [checkpoint smoke guide](docs/checkpoint-smoke.md).
+
 GPU experiments belong in `blackwell-kernel-lab` / `myelin-accelerator`, not as dependencies of this crate.
 
 See [`REVIEW.md`](REVIEW.md) for quality gates.

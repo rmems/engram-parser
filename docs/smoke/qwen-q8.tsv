@@ -1,0 +1,7 @@
+# Qwen/Qwen2.5-1.5B-Instruct-GGUF @ 91cad51170dc346986eccefdc2dd33a9da36ead9
+# name	native dtype	outermost-first shape	bytes	file	absolute offset
+output.weight	Q8_0	151936,1536	247959552	qwen.gguf	5950496
+blk.14.attn_v.bias	F32	256	1024	qwen.gguf	849614880
+blk.20.attn_v.weight	Q8_0	256,1536	417792	qwen.gguf	1197780000
+blk.3.attn_norm.weight	F32	1536	6144	qwen.gguf	1546361888
+output_norm.weight	F32	1536	6144	qwen.gguf	1894525984
