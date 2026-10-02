@@ -41,7 +41,10 @@ cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo build --all-features
 cargo test --all-features
-# MSRV
+# MSRV job (RUSTUP_TOOLCHAIN=1.97.1 overrides rust-toolchain.toml)
+cargo +1.97.1 fmt --check
+cargo +1.97.1 clippy --all-targets --all-features -- -D warnings
+cargo +1.97.1 build --all-features
 cargo +1.97.1 test --all-features
 ```
 
@@ -52,7 +55,8 @@ push a release tag by hand.
 
 ## Conventions visible in the repo
 
-- Keep `[dependencies]` empty for the default feature set. New dependencies go behind a feature.
+- Keep the default build dependency-free. `[dependencies]` holds only optional crates (`memmap2`,
+  `safetensors`) enabled by features, so any new dependency must be `optional = true` behind a feature.
 - Every Rust source file has an SPDX license identifier header.
 - `REVIEW.md` is the pre-merge quality gate. `CHANGELOG.md` is maintained.
 - Commit subjects use Conventional Commits with scopes (`fix(gguf):`, `feat(checkpoint):`,
