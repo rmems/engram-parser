@@ -2,9 +2,9 @@
 
 All notable changes to this project are documented in this file.
 
-## [Unreleased]
+## [0.3.0] - 2026-10-02
 
-This work targets **v0.3.0, the first public crates.io publication**. Version
+**First public crates.io publication.** Version
 0.2.0 was used only during development and was never published.
 
 ### Added
