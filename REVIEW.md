@@ -99,7 +99,7 @@ rustup show
 # Install rustfmt if cargo fmt says it is missing
 rustup component add rustfmt
 # or pin explicitly:
-rustup component add rustfmt --toolchain stable
+rustup component add rustfmt --toolchain 1.99.0
 rustup component add rustfmt --toolchain 1.97.1   # for MSRV checks
 
 # Confirm the binary cargo will call
@@ -107,8 +107,8 @@ cargo fmt --version
 # → rustfmt x.y.z-stable (...)
 ```
 
-This repo ships [`rust-toolchain.toml`](rust-toolchain.toml) (`channel = "stable"`),
-so `rustup` / `cargo` in this directory use latest stable automatically.
+This repo ships [`rust-toolchain.toml`](rust-toolchain.toml) (`channel = "1.99.0"`),
+so `rustup` / `cargo` in this directory use the pinned build toolchain.
 
 **Typical errors:**
 
@@ -116,7 +116,7 @@ so `rustup` / `cargo` in this directory use latest stable automatically.
 |---------|-----|
 | `could not find Cargo.toml` | `cd` into `engram-parser` first |
 | `'cargo-fmt' is not installed` / missing rustfmt | `rustup component add rustfmt` |
-| Wrong toolchain (old rustfmt, edition 2024 issues) | Use stable ≥ MSRV **1.97.1**: `rustup update stable` or `cargo +stable fmt` |
+| Wrong toolchain (old rustfmt, edition 2024 issues) | Install Rust 1.99.0 with rustfmt, or run `cargo +1.99.0 fmt` |
 | “Nothing happened” after `cargo fmt` | Tree was already formatted; use `cargo fmt --check` (expect exit 0) or `cargo fmt -v` |
 | `--check` prints diffs | Run `cargo fmt` (no `--check`) once, then commit |
 
@@ -214,10 +214,9 @@ RUSTUP_TOOLCHAIN=1.97.1 cargo test --all-features
 rustup run 1.97.1 cargo test --all-features
 ```
 
-**When MSRV == current stable (today: both 1.97.x):** plain `cargo build` /
-`cargo test` already use stable via `rust-toolchain.toml` and are enough for
-day-to-day work. Use `+1.97.1` only when you want an explicit MSRV gate matching
-the CI `msrv` job.
+Plain `cargo build` / `cargo test` use pinned Rust 1.99.0 for day-to-day
+work. Use `+1.97.1` for the separate compatibility gate matching CI's `msrv`
+job; the minimum supported version is not the default build compiler.
 
 | Symptom | Fix |
 |---------|-----|
@@ -371,18 +370,19 @@ cargo run --locked --example benchmark --profile bench --features bench,cuda
 
 | Local step | Workflow job |
 |------------|----------------|
-| default-feature clippy, build, test | `default-features` in `.github/workflows/ci.yml` (GGUF-only, no optional dependencies) |
-| fmt, clippy, build, test (T0 only), clean-tree, llvm-cov | `validate` in `.github/workflows/ci.yml` (**stable** = latest) |
+| fmt and default/all-feature Clippy | `quality` in `.github/workflows/ci.yml` (pinned Rust 1.99.0) |
+| default/all-feature tests and clean-tree guard | `test` matrix in `.github/workflows/ci.yml` (Linux, Windows, macOS) |
+| all-target/all-feature LCOV and Codecov upload | `coverage` in `.github/workflows/ci.yml` (Linux artifact retained) |
+| workflow lint and duplication/complexity analysis | `qlty` in `.github/workflows/ci.yml`; Rust fmt/Clippy remain authoritative |
 | MSRV 1.97.1 fmt/clippy/build/test | `msrv` in `.github/workflows/ci.yml` (pinned `toolchain: "1.97.1"`) |
 | Security audit | `.github/workflows/security.yml` (not required for every local edit) |
-| OS test matrix | `.github/workflows/ci.yml` runs default/all features on Linux, Windows, macOS |
 | T1 real GGUF / T2 GPU | **Not in CI** — local pilots only |
 | Release package/rustdoc/dry-run gate | `verify` in `.github/workflows/release.yml`; see `RELEASE.md` |
 
-**Yes, the GitHub workflow is part of a Rust version bump:** keep `validate` on
-`stable` (auto-tracks latest), and update the `msrv` job + `Cargo.toml`
-Keep the declared `rust-version`, MSRV job, and pinned build toolchain aligned
-with their separate roles when changing Rust versions.
+When changing Rust versions, update the pinned normal-build toolchain and
+`quality` / `test` / `coverage` jobs together. Change `Cargo.toml`'s
+`rust-version` and the separate `msrv` job only when intentionally raising
+the minimum supported version.
 
 ---
 
