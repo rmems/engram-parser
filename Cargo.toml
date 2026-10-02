@@ -8,9 +8,22 @@ license = "MIT OR Apache-2.0"
 authors = ["Raul Cardenas Montoya <montoyaraul34@gmail.com>"]
 repository = "https://github.com/rmems/engram-parser"
 homepage = "https://github.com/rmems/engram-parser"
-keywords = ["gguf", "moe", "parser", "weights", "deserializer"]
+keywords = ["gguf", "safetensors", "checkpoint", "tensor", "parser"]
 categories = ["parser-implementations", "science"]
 readme = "README.md"
+# crates.io publication allowlist (RM-1796): crate source + user-facing examples,
+# manifest, README, changelog, and licenses only. Tests, fixtures, docs, CI, and
+# dev tooling stay out of the published package.
+include = [
+    "Cargo.toml",
+    "Cargo.lock",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE-MIT",
+    "LICENSE-APACHE-2.0",
+    "src/**",
+    "examples/**",
+]
 
 [dependencies]
 memmap2 = { version = "0.9.11", optional = true }
