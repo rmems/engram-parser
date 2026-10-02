@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Cursor Cloud Agent environment for engram-parser.
 # Do not COPY the repository; Cursor checks out the target commit itself.
-ARG RUST_VERSION=1.97.1
+ARG RUST_VERSION=1.99.0
 
 FROM rust:${RUST_VERSION}-slim
 

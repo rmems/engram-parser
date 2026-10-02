@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [main]
   schedule:
-    - cron: '0 0 * * *'  # Run daily at midnight
+    - cron: '0 0 * * *'
 
 concurrency:
   group: ci-cpu-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
@@ -16,143 +16,158 @@ permissions:
   contents: read
 
 jobs:
-  default-features:
-    name: Default features (GGUF only)
+  quality:
+    name: Rust fmt and Clippy (1.99.0)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      # actions/checkout@v7.0.0
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
-      # dtolnay/rust-toolchain@stable action, pinned Rust compiler
       - name: Install Rust 1.99.0
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
         with:
           toolchain: "1.99.0"
-          components: clippy
-
-      # Swatinem/rust-cache@v2
-      - name: Cache Cargo + target
-        uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
-        with:
-          cache-on-failure: true
-
-      - name: Clippy (default features)
-        run: cargo clippy --all-targets --locked -- -D warnings
-
-      - name: Build (default features)
-        run: cargo build --locked
-
-      - name: Test (default features)
-        run: cargo test --locked
-
-  validate:
-    name: Build & Test
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-    steps:
-      # actions/checkout@v7.0.0
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
-
-      # dtolnay/rust-toolchain@stable action, pinned Rust compiler
-      - name: Install Rust 1.99.0
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
-        with:
-          toolchain: "1.99.0"
-          components: clippy, rustfmt, llvm-tools-preview
-
-      # Swatinem/rust-cache@v2 (adopted from corinth-canal for better caching)
-      - name: Cache Cargo + target
-        uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
-        with:
-          cache-on-failure: true
-
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
       - name: Check formatting
         run: cargo fmt --check
+      - name: Clippy (default features)
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Clippy (all features)
+        run: cargo clippy --all-targets --all-features --locked -- -D warnings
 
-      - name: Clippy (lint)
-        run: cargo clippy --all-targets --all-features -- -D warnings
-
-      - name: Build
-        run: cargo build --all-features
-
-      - name: Test
-        run: cargo test --all-features
-
-      # Verify build/test leaves no unexpected artifacts (clean-tree guard per qodo review)
-      - name: Check working tree is clean
+  test:
+    name: Test (${{ matrix.os }}, ${{ matrix.features }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        features: [default, all]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust 1.99.0
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
+        with:
+          toolchain: "1.99.0"
+      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+      - name: Test ${{ matrix.features }} features
+        shell: bash
+        env:
+          FEATURE_SET: ${{ matrix.features }}
+        run: |
+          if [ "$FEATURE_SET" = all ]; then
+            cargo test --locked --all-features
+          else
+            cargo test --locked
+          fi
+      - name: Check working tree
+        shell: bash
         run: |
           if [ -n "$(git status --porcelain)" ]; then
-            echo "❌ Working tree has unexpected changes after build+test:"
             git status --short
             exit 1
           fi
-          echo "✅ Working tree is clean"
 
-      # Coverage using Codecov (per review: "We will use codecov https://about.codecov.io/language/rust/")
+  coverage:
+    name: Coverage (Linux, all features)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install Rust 1.99.0
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
+        with:
+          toolchain: "1.99.0"
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2
         with:
           tool: cargo-llvm-cov
-
-      - name: Generate coverage report
-        run: cargo llvm-cov --all-targets --all-features --locked --lcov --output-path lcov.info
-
-      - name: Upload coverage to Codecov
-        if: ${{ env.CODECOV_TOKEN != '' }}
+      - name: Test and generate LCOV
+        run: cargo llvm-cov --all-targets --all-features --locked --lcov --output-path coverage.lcov
+      - name: Retain coverage report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-lcov
+          path: coverage.lcov
+          if-no-files-found: error
+          retention-days: 14
+      - name: Check Codecov token availability
+        id: codecov_token
+        shell: bash
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
+        run: |
+          if [ -n "$CODECOV_TOKEN" ]; then
+            echo 'available=true' >> "$GITHUB_OUTPUT"
+          elif [ "$EVENT_NAME" = pull_request ] && [ "$HEAD_REPO" != "$BASE_REPO" ]; then
+            echo 'Codecov upload skipped for fork PR without a token; LCOV artifact is retained.' >> "$GITHUB_STEP_SUMMARY"
+            echo '::warning::Codecov upload skipped for fork PR without a token'
+          else
+            echo '::error::CODECOV_TOKEN is missing; LCOV artifact is retained but upload cannot run'
+            exit 1
+          fi
+      - name: Upload to Codecov
+        if: steps.codecov_token.outputs.available == 'true'
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
-          token: ${{ env.CODECOV_TOKEN }}
-          files: lcov.info
-          fail_ci_if_error: false
-          verbose: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage.lcov
+          disable_search: true
+          override_commit: ${{ github.event.pull_request.head.sha || github.sha }}
+          fail_ci_if_error: true
+
+  qlty:
+    name: Qlty workflow lint and maintainability
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Qlty CLI
+        uses: qltysh/qlty-action/install@c9b09987143d1e4ac955f4803c7bea742102feb5 # v2.4.0
+      - name: Lint GitHub Actions workflows
+        run: qlty check --all --no-formatters --summary
+      - name: Report duplication and complexity
+        run: qlty smells --all --no-snippets --quiet
 
   msrv:
     name: MSRV (1.97.1)
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # Override repo `rust-toolchain.toml` (channel=1.99.0) so this job truly
-    # exercises the 1.97.1 MSRV.
     env:
       RUSTUP_TOOLCHAIN: "1.97.1"
     steps:
-      # actions/checkout@v7.0.0
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
-      # dtolnay/rust-toolchain — pin to MSRV (matches Cargo.toml rust-version)
       - name: Install Rust MSRV (1.97.1)
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
         with:
           toolchain: "1.97.1"
           components: clippy, rustfmt
-
-      # Swatinem/rust-cache@v2
-      - name: Cache Cargo + target
-        uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
-        with:
-          cache-on-failure: true
-
+      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
       - name: Confirm MSRV toolchain is active
-        run: |
-          rustc --version | grep -F '1.97.1 '
-          cargo --version
-
+        run: rustc --version | grep -F '1.97.1 '
       - name: Check formatting
         run: cargo fmt --check
-
-      - name: Clippy (lint)
-        run: cargo clippy --all-targets --all-features -- -D warnings
-
-      - name: Build
-        run: cargo build --all-features
-
-      - name: Test
-        run: cargo test --all-features
+      - name: Clippy (all features)
+        run: cargo clippy --all-targets --all-features --locked -- -D warnings
+      - name: Build (all features)
+        run: cargo build --all-features --locked
+      - name: Test (all features)
+        run: cargo test --all-features --locked

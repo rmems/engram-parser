@@ -49,6 +49,10 @@ cargo +1.97.1 test --all-features
 ```
 
 Coverage: `cargo llvm-cov --all-targets --all-features --locked --lcov --output-path lcov.info`.
+CI runs default and all-feature tests on Linux, Windows, and macOS. Codecov
+receives the Linux LCOV report; Qlty runs complementary workflow lint and
+maintainability checks. Cursor Cloud Agents keep their separate `.cursor/`
+environment setup; the crate's Docker image workflow is removed.
 The release/publication gate and its ordering are in `RELEASE.md` and
 `.github/workflows/release.yml` (`cargo package --locked`, `cargo publish --dry-run --locked`). Per `RELEASE.md`, never create or
 push a release tag by hand.
