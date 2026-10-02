@@ -80,6 +80,19 @@ This work targets **v0.3.0, the first public crates.io publication**. Version
 
 ### Changed
 
+- **API organization ([RM-1792](https://linear.app/rpd-34/issue/RM-1792)):**
+  MoE extraction moved behind the model-analysis namespace
+  `engram_parser::analysis::moe`, making `checkpoint` the canonical core
+  contract for the v0.3 crates.io surface. `MoeExpertWeights`,
+  `RawTensor`, `extract_expert`, and `list_experts` now live canonically
+  under `analysis::moe`; `engram_parser::moe` and the crate-root
+  re-exports remain as compatibility shims over the same single
+  implementation, so existing Git consumers keep compiling unchanged.
+  `RawTensor` is documented as a GGUF-specific analysis result
+  (`DType`/`ggml_type`), not a tensor abstraction — `TensorInfo` +
+  `Checkpoint::tensor_bytes` stay the core contract. Safetensors
+  `discover_candidates` is unchanged and remains a separate,
+  format-specific discovery surface. No behavior changes.
 - **Charter reversal (#10):** safetensors support ships **inside this
   crate** behind an off-by-default `safetensors` cargo feature, not in a
   separate `safetensors-parser` crate. This supersedes the "engram-parser

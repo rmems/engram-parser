@@ -1,10 +1,23 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Pure-Rust, zero-dependency GGUF parser with MoE support.
+//! Pure-Rust checkpoint and tensor inspection for GGUF and Safetensors.
 //!
-//! This crate parses GGUF (GPT-Generated Unified Format) v3 files,
-//! extracts metadata and tensor information, and provides utilities
-//! for Mixture of Experts (MoE) model analysis.
+//! The primary contract is the format-independent
+//! [`checkpoint`] module: [`open_checkpoint`] detects the container
+//! format and returns a [`Checkpoint`] handle that inventories tensors
+//! ([`TensorInfo`], [`TensorShape`], [`TensorDType`],
+//! [`TensorLocation`]), reads metadata, and fetches raw payload bytes
+//! without the caller branching on GGUF vs. Safetensors.
+//!
+//! Beneath that contract, [`gguf`] and (feature-gated) `safetensors`
+//! are format-specific backends: each exposes its own full parsing
+//! surface for callers that need format semantics — GGML wire types,
+//! K-quant dequant, Safetensors manifests and MoE candidate discovery.
+//!
+//! Model-analysis specializations live under [`analysis`]. Today that
+//! is [`analysis::moe`]: per-expert raw-weight extraction over a parsed
+//! [`GgufLayout`]. MoE is one analysis specialization built above the
+//! parsers, not the identity of the crate.
 //!
 //! # Features
 //!
@@ -21,7 +34,8 @@
 //!   IQ3_M block layout. No GGML kernels, no ggml runtime, no CUDA.
 //! - **Type labels**: Human-readable names via [`ggml_type_label`] (maps the
 //!   on-wire `ggml_type` integer used by GGUF)
-//! - **MoE support**: Extract expert **raw** weights (byte buffers + shape)
+//! - **MoE analysis**: Extract expert **raw** weights (byte buffers + shape)
+//!   via [`analysis::moe`]; GGUF-specific.
 //! - **Metadata helpers**: Architecture-aware convenience methods for common fields
 //! - **Optional Safetensors**: enable `--features safetensors` for
 //!   inspection, deterministic manifests, MoE candidate discovery, and raw
@@ -34,24 +48,39 @@
 //!
 //! # Example
 //!
+//! Format-agnostic inventory:
+//!
 //! ```no_run
-//! use engram_parser::{load_gguf, ggml_type_label};
+//! use engram_parser::{Checkpoint, open_checkpoint};
 //!
-//! let layout = load_gguf("model.gguf").unwrap();
-//! println!("Architecture: {}", layout.metadata.architecture());
-//! println!("Quantization: {}", layout.metadata.quantization());
-//!
-//! if let Some(block_count) = layout.metadata.block_count() {
-//!     println!("Blocks: {}", block_count);
-//! }
-//!
-//! for (name, tensor) in &layout.tensors {
-//!     println!("{}: {:?} (type: {})",
-//!         name, tensor.dims,
-//!         ggml_type_label(tensor.ggml_type));
+//! let ckpt = open_checkpoint("model.gguf").unwrap();
+//! for t in ckpt.tensors() {
+//!     println!("{} {} {:?} {}B", t.name, t.dtype, t.shape.dims(), t.byte_len);
 //! }
 //! ```
+//!
+//! MoE expert analysis (GGUF-specific) uses the canonical
+//! [`analysis::moe`] path:
+//!
+//! ```no_run
+//! use engram_parser::analysis::moe::{extract_expert, list_experts};
+//! use engram_parser::load_gguf;
+//!
+//! let layout = load_gguf("moe-model.gguf").unwrap();
+//! for (block, expert) in list_experts(&layout) {
+//!     let weights = extract_expert(&layout, block, expert).unwrap();
+//!     println!("blk.{block} expert {expert}: complete={}", weights.is_complete());
+//! }
+//! ```
+//!
+//! # Compatibility
+//!
+//! The legacy `engram_parser::moe` module and the crate-root MoE
+//! symbols ([`extract_expert`], [`list_experts`], [`MoeExpertWeights`],
+//! [`RawTensor`]) remain as re-exports of [`analysis::moe`] and keep
+//! compiling unchanged.
 
+pub mod analysis;
 pub mod checkpoint;
 pub mod error;
 pub mod gguf;
@@ -142,4 +171,6 @@ pub use gguf::{
     GgufLayoutMmap, PageAlignedTensorBytes, load_gguf_mmap, load_gguf_mmap_with_limits,
     os_page_size,
 };
-pub use moe::{MoeExpertWeights, RawTensor, extract_expert, list_experts};
+// MoE analysis result types and extractors, re-exported for
+// compatibility; the canonical path is `analysis::moe`.
+pub use analysis::moe::{MoeExpertWeights, RawTensor, extract_expert, list_experts};
