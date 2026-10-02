@@ -39,7 +39,8 @@
 //! [`open_checkpoint`] picks a backend at runtime and returns an
 //! [`AnyCheckpoint`], whose `as_*` accessors hand back the
 //! format-specific handle (for example `GgufLayout` for
-//! [`crate::list_experts`] / [`crate::extract_expert`]).
+//! [`crate::analysis::moe::list_experts`] /
+//! [`crate::analysis::moe::extract_expert`]).
 //!
 //! # Contract
 //!

@@ -19,7 +19,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
 
-use engram_parser::{GgufLayout, extract_expert, ggml_type_label, list_experts, load_gguf};
+use engram_parser::analysis::moe::{extract_expert, list_experts};
+use engram_parser::{GgufLayout, ggml_type_label, load_gguf};
 
 enum Resolved {
     Path(PathBuf),

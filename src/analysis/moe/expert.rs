@@ -11,6 +11,15 @@ use crate::gguf::DType;
 
 /// Owned raw tensor buffer: bytes + shape + dtype, no references into
 /// the source [`GgufLayout`](crate::gguf::GgufLayout).
+///
+/// This is an *analysis result type*, not a tensor abstraction:
+/// expert extraction may slice a stacked GGUF tensor, so the result
+/// holds expert-local `dims` plus owned `bytes`. It does not replace
+/// [`TensorInfo`](crate::checkpoint::TensorInfo) /
+/// [`Checkpoint::tensor_bytes`](crate::checkpoint::Checkpoint::tensor_bytes),
+/// which remain the core checkpoint contract. Its `dtype`/`ggml_type`
+/// fields make this extraction path GGUF-specific; any normalized
+/// cross-format expert tensor type is planned v0.4 work.
 #[derive(Debug, Clone)]
 pub struct RawTensor {
     /// Source tensor name (e.g. `"blk.0.ffn_gate_exps.weight"`).

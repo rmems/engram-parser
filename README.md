@@ -3,9 +3,9 @@
 [![CI](https://github.com/rmems/engram-parser/actions/workflows/ci.yml/badge.svg)](https://github.com/rmems/engram-parser/actions/workflows/ci.yml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
 
-Pure-Rust **checkpoint metadata parsing and Mixture-of-Experts extraction**.
+Pure-Rust **GGUF + Safetensors checkpoint/tensor substrate** with optional format-specific helpers and model-analysis modules.
 
-Today, `engram-parser` ships GGUF v3 deserialization, per-expert raw-weight extraction, packed K-quant dequant (Q8_0 / Q5_K / Q6_K / IQ3_M block layout), and an optional `mmap` reader. Safetensors support — header/manifest/MoE discovery plus raw tensor payload access — ships behind the off-by-default `safetensors` Cargo feature, which uses the upstream `safetensors` crate for canonical validation.
+Today, `engram-parser` ships a format-independent `Checkpoint` API over GGUF v3 and Safetensors: tensor inventory, metadata, and raw payload access without branching on container format. Format-specific surfaces remain for callers that need them: GGUF wire types and packed K-quant dequant (Q8_0 / Q5_K / Q6_K / IQ3_M block layout), an optional `mmap` reader, and Safetensors header/manifest/MoE discovery — the latter behind the off-by-default `safetensors` Cargo feature, which uses the upstream `safetensors` crate for canonical validation. MoE per-expert raw-weight extraction is a GGUF-specific model-analysis specialization under `engram_parser::analysis::moe`.
 
 > **Safetensors status:** shipped behind `--features safetensors`. Default builds remain GGUF-only. Raw payload reads are bounded per-tensor; enable `--features safetensors,mmap` for borrowed mmap-backed access. No Hugging Face `config.json` policy. Tracked in [#10](https://github.com/rmems/engram-parser/issues/10) and [#86](https://github.com/rmems/engram-parser/issues/86).
 >
@@ -17,7 +17,7 @@ Today, `engram-parser` ships GGUF v3 deserialization, per-expert raw-weight extr
 
 - Parses GGUF v3 magic, header, KV metadata, and tensor directory into an in-memory [`GgufLayout`].
 - Applies a documented [`ParseLimits`] budget (KV/tensor counts, string sizes, array work, tensor rank, metadata bytes) before allocation or loops proportional to file-declared values. Defaults are generous; trusted callers can override via `load_gguf_with_limits` / `parse_bytes_with_limits` without weakening the default path.
-- Enumerates MoE experts discovered in a checkpoint.
+- Enumerates MoE experts discovered in a checkpoint (model analysis under `engram_parser::analysis::moe`).
 - Extracts the raw byte buffers for one expert's `gate`, `up`, and `down` projections.
 - Supports stacked (`blk.{B}.ffn_{role}_exps.weight`) and per-expert (`blk.{B}.ffn_{role}.{E}.weight`) conventions.
 - Models packed GGUF dtype sizes without pulling in a numerical runtime.
@@ -80,7 +80,7 @@ This crate **does not own**:
 
 | Crate | Responsibility |
 |---|---|
-| `engram-parser` | GGUF metadata + MoE raw extraction + optional mmap/K-quant dequant; feature-gated Safetensors metadata/manifest/discovery/raw payload access |
+| `engram-parser` | GGUF + Safetensors checkpoint/tensor substrate with optional format-specific helpers (mmap, K-quant dequant, manifests, discovery) and model-analysis modules (`analysis::moe`) |
 | `cortex-tensor` | Tensor/Transformer math + real-weight MoE routing |
 | `hybrid-fusion` | Backend-agnostic Transformer↔SNN orchestration/contracts |
 | `neuromod` | SNN neuron/network dynamics |
@@ -166,11 +166,42 @@ Do not automatically promote:
 
 ## Quick start
 
+Format-agnostic checkpoint inventory — the shared entry point:
+
 ```rust
-use engram_parser::{extract_expert, list_experts, load_gguf};
+use engram_parser::{Checkpoint, open_checkpoint};
+
+let ckpt = open_checkpoint("./model.gguf")?; // or a .safetensors file, index, or directory
+println!("format = {:?}", ckpt.format());
+for t in ckpt.tensors() {
+    println!("{} {} {:?} {}B", t.name, t.dtype, t.shape.dims(), t.byte_len);
+}
+let raw = ckpt.tensor_bytes("token_embd.weight")?; // Cow<[u8]>, raw and undecoded
+
+# Ok::<(), engram_parser::ParserError>(())
+```
+
+GGUF-specific access (when you need GGUF semantics — metadata helpers, `ggml_type`, dequant):
+
+```rust
+use engram_parser::{ggml_type_label, load_gguf};
 
 let layout = load_gguf("./model.gguf")?;
 println!("architecture = {}", layout.metadata.architecture());
+for (name, tensor) in &layout.tensors {
+    println!("{} {:?} ({})", name, tensor.dims, ggml_type_label(tensor.ggml_type));
+}
+
+# Ok::<(), engram_parser::ParserError>(())
+```
+
+MoE expert analysis — a GGUF-specific specialization under `engram_parser::analysis::moe`:
+
+```rust
+use engram_parser::analysis::moe::{extract_expert, list_experts};
+use engram_parser::load_gguf;
+
+let layout = load_gguf("./model.gguf")?;
 
 for (block, expert) in list_experts(&layout) {
     let weights = extract_expert(&layout, block, expert)?;
@@ -186,6 +217,8 @@ for (block, expert) in list_experts(&layout) {
 
 # Ok::<(), engram_parser::ParserError>(())
 ```
+
+**Legacy MoE imports still work.** `engram_parser::moe::{extract_expert, list_experts, MoeExpertWeights, RawTensor}` and the crate-root `engram_parser::{extract_expert, list_experts, MoeExpertWeights, RawTensor}` paths re-export the same implementation and keep compiling in v0.3; `engram_parser::analysis::moe` is the canonical documented path going forward.
 
 Safetensors (requires `--features safetensors`):
 
@@ -232,8 +265,8 @@ Current GGUF surface includes:
 - `#[cfg(feature = "mmap")] load_gguf_mmap` / `load_gguf_mmap_with_limits` → `GgufLayoutMmap` (page-aligned tensor slices via `tensor_page_aligned_bytes`);
 - `GgufLayout`, `GgufMetadata`, `Tensor`, `DType`, `ParseLimits`;
 - `dequantize_f16` (on `Tensor`), `dequantize_q8_0`, `dequantize_q5_k`, `dequantize_q6_k`, `dequantize_iq3_m`;
-- `extract_expert`, `list_experts`;
-- `MoeExpertWeights`, `RawTensor`;
+- `extract_expert`, `list_experts` (canonical: `engram_parser::analysis::moe`);
+- `MoeExpertWeights`, `RawTensor` (also at `engram_parser::analysis::moe`);
 - `ParserError`, `ParseLimitKind`, `HostSizeField`, `Result`;
 - public `GGML_TYPE_*` / `GGUF_VALUE_TYPE_*` constants and the `ggml_type_label` label function.
 
@@ -279,7 +312,7 @@ let raw = ckpt.tensor_bytes("token_embd.weight")?; // Cow<[u8]>, raw and undecod
 | `SafetensorsBackend` | `safetensors::SafetensorsCheckpoint` | `safetensors` | owned |
 | `SafetensorsMmapBackend` | `safetensors::SafetensorsCheckpointMmap` | `safetensors` + `mmap` | borrowed |
 
-**Migration.** Existing APIs are unchanged. To go from `load_gguf` to the shared contract, use `GgufBackend::open(path)` (or `from_layout(layout)` / `from_bytes`). `layout()` / `into_layout()` still reach `list_experts`, `extract_expert`, `find_tensors_with_suffix`, and dequant. `AnyCheckpoint::as_gguf()`, `as_safetensors()`, and the mmap variants return the format-specific handles. The Safetensors manifest and candidate-discovery APIs are unchanged.
+**Migration.** Existing APIs are unchanged. To go from `load_gguf` to the shared contract, use `GgufBackend::open(path)` (or `from_layout(layout)` / `from_bytes`). `layout()` / `into_layout()` still reach `list_experts`, `extract_expert`, `find_tensors_with_suffix`, and dequant — now canonically at `engram_parser::analysis::moe`, with `engram_parser::moe` and the crate-root symbols kept as re-export shims. `AnyCheckpoint::as_gguf()`, `as_safetensors()`, and the mmap variants return the format-specific handles. The Safetensors manifest and candidate-discovery APIs are unchanged.
 
 **Downstream (`cortex-tensor`, `hybrid-fusion`, `corinth-canal`, `grok-ozempic`).** The contract has no GPU, execution, or MoE types, and upstream crate types never appear in it. `TensorInfo::new` builds mock inventories without checkpoint files. Model topology and role discovery are out of scope here and are planned for v0.4.0 (RM-1785).
 

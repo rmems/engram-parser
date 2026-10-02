@@ -46,7 +46,9 @@ impl AnyCheckpoint {
         }
     }
 
-    /// Owned GGUF layout, for [`crate::list_experts`] / [`crate::extract_expert`].
+    /// Owned GGUF layout, for
+    /// [`crate::analysis::moe::list_experts`] /
+    /// [`crate::analysis::moe::extract_expert`].
     pub fn as_gguf(&self) -> Option<&crate::GgufLayout> {
         match self {
             Self::Gguf(backend) => Some(backend.layout()),
