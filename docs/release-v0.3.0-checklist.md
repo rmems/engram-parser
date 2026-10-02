@@ -1,67 +1,128 @@
 # Release checklist — v0.3.0 (first crates.io publication)
 
-Gate run on the release commit by Devin (RM-1796). Publication itself is done
-locally by the maintainer after validating against a real model.
+Run the publication gate in [`RELEASE.md`](../RELEASE.md) on the final clean,
+merged release commit. This document separates package policy from a dated
+audit snapshot: earlier test results, archive sizes, and hashes do not qualify
+a later commit. Publication remains a maintainer action under
+[GitHub #89](https://github.com/rmems/engram-parser/issues/89) / RM-1786.
 
-## Package-content gate
+## Package-content policy
 
-`package.include` allowlist in `Cargo.toml`:
+`package.include` in `Cargo.toml` allows only these publication paths:
 
 | Path | Purpose |
 | --- | --- |
 | `Cargo.toml` / `Cargo.lock` | Manifest and resolved dependency set |
-| `README.md` | crates.io/readme documentation |
+| `README.md` | Public installation and API documentation |
 | `CHANGELOG.md` | Release history |
 | `LICENSE-MIT`, `LICENSE-APACHE-2.0` | Dual license texts |
-| `src/**` | Crate source |
-| `examples/**` | User-facing inspection examples (`inspect_gguf`, `inspect_checkpoint`, `checkpoint_smoke`) |
+| `src/**` | Crate source, including in-module unit tests |
+| `examples/**` | Public checkpoint inspection and smoke examples |
 
-Excluded: `tests/` + `tests/fixtures/` (dev verification only), `docs/` (internal
-notes/smoke data), `.github/` CI, `Dockerfile`, `REVIEW.md`, `RELEASE.md`,
-`rust-toolchain.toml`, editor/agent tooling (`.agents`, `.cursor`, `.codacy.yml`,
-`.yamllint`, `.dockerignore`, `.gitignore`).
+Integration tests and fixtures under `tests/`, internal reports under `docs/`,
+CI, `REVIEW.md`, `RELEASE.md`, `rust-toolchain.toml`, and local agent/quality
+configuration stay outside the archive. Cargo adds `Cargo.toml.orig` and,
+when packaging a Git checkout, `.cargo_vcs_info.json`.
 
-`cargo package --list` final result: 41 files — the allowlist above plus
-Cargo-managed metadata (`Cargo.toml.orig`, `.cargo_vcs_info.json`). Archive:
-`engram-parser-0.3.0.crate`, 103.5 KiB compressed (423.6 KiB packaged). No
-unexpected files.
+Inspect `cargo package --list` and the archive itself for each candidate.
+Verify its VCS SHA matches the candidate and every file has an intended
+purpose. The 11 warnings for deliberately excluded integration-test targets
+are expected under the policy in `RELEASE.md`; other packaging warnings still
+close the gate. A dry run's explicit upload-aborted notice is expected.
 
-## Lightweight audit gate
+## Audit snapshot — 2026-10-02
 
-- `cargo audit` (RustSec db, 31 locked dependencies): **0 advisories**.
-- `.crate` archive scan for secrets/private files (`PRIVATE KEY`, `api_key`,
-  `secret`, `token`, `password`): clean — only the words "token"/"tokenizer" in
-  docs and JSON-parser code. No dotfiles other than `.cargo_vcs_info.json`.
-- Dependency licenses reviewed: `memmap2` MIT/Apache-2.0, `safetensors` MIT OR
-  Apache-2.0, `serde`/`serde_json`/`syn`/`proc-macro2`/`quote`/`unicode-ident`/
-  `itoa`/`memchr`/`cfg-if`/`once_cell`/`hashbrown`/`equivalent`/`allocator-api2`/
-  `foldhash`/`bitflags`/`errno`/`libc`/`linux-raw-sys`/`rustix`/`getrandom`/
-  `windows-sys`/`windows-link`/`tempfile`/`fastrand`/`zmij` — MIT or Apache-2.0
-  (or both); `r-efi` MIT OR Apache-2.0 OR LGPL-2.1-or-later (permissive options
-  satisfy distribution). All compatible.
+The following measurements belong only to
+[`485f0445a93c1ec06e8142a2d602c33030d753d7`](https://github.com/rmems/engram-parser/commit/485f0445a93c1ec06e8142a2d602c33030d753d7),
+which preceded this documentation fix. They came from a clean temporary Git
+clone, with Rust 1.99.0 / Cargo 1.99.0. The crate's declared MSRV is 1.97.1.
 
-## Publication gate run (all green)
+| Check on that snapshot | Result |
+| --- | --- |
+| Formatting, default/all-feature Clippy with warnings denied, default/all-feature builds | Passed |
+| Default-feature tests | 123 passed, 2 opt-in pilots ignored |
+| All-feature tests | 227 passed, 3 opt-in pilots ignored |
+| Release-mode all-feature tests | 227 passed, 3 opt-in pilots ignored |
+| All-feature rustdoc with warnings denied | Passed |
+| `cargo package --locked` and `cargo publish --dry-run --locked` | Passed; 11 expected test-exclusion warnings |
+| Unpacked crate all-feature tests and rustdoc | 118 tests passed; rustdoc passed |
+| Default normal dependency tree | Zero dependencies |
+| Hosted OS matrix, MSRV, coverage, and quality | [Passed](https://github.com/rmems/engram-parser/actions/runs/37036534538) |
+| Hosted RustSec audit | [Passed](https://github.com/rmems/engram-parser/actions/runs/37036534413) |
 
-`cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` (default and
-`--all-features`), `cargo test` in all four feature combos (default, `mmap`,
-`safetensors`, `--all-features`), `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps`
-(default and `--all-features`), `cargo package --locked`,
-`cargo publish --dry-run --locked`.
+The snapshot's archive had **41 entries**, **105,118 compressed bytes**
+(102.7 KiB; Cargo reported 421.3 KiB packaged), and SHA256
+`56ea5ac857ac8bacd6a259b2dea6349867cf3b4e7651ee29a9a0d002bb81fb5c`.
+Its `.cargo_vcs_info.json` named the snapshot SHA. Inspection found only
+allowlisted/Cargo-managed paths, no symlinks, and no private-key headers.
+This is a bounded archive inspection, not a claim that every possible secret
+pattern was audited. The README includes the intended public Codecov badge
+query token; registry upload credentials are not package content.
 
-## Remaining (maintainer, local)
+These archive measurements must be regenerated after changing the README,
+manifest, source, or other packaged files. Do not compare a new candidate's
+archive against this snapshot's checksum as an acceptance test.
 
-The [local Qwen release-preparation smoke](smoke/2026-10-02-local-qwen-release-prep.md)
-passed first and warm runs on Rust 1.99.0. The
-[local Nemotron single-file Safetensors smoke](smoke/2026-10-02-local-nemotron.md)
-also passed first and warm runs on the pinned 1.99.0 toolchain, and the
-[local Ollama Granite GGUF smoke](smoke/2026-10-02-local-ollama-granite.md)
-passed first and warm runs on the same toolchain. These reports are pre-merge
-evidence. Repeat the publication gate on the exact reviewed release commit before
-using the results to publish. The existing [Linear v0.3.0 release](https://linear.app/rpd-34/pipeline/engram-parser/release/first-cratesio-checkpoint-substrate-cf986d0537be)
-is the release record and should be marked Released only after registry and
-GitHub release verification.
+### Locked dependency license inventory
 
-1. `cargo publish --locked` after the on-model test.
-2. Verify `engram-parser 0.3.0` on crates.io + docs.rs build.
-3. Dispatch the Release workflow with tag `v0.3.0` and the published commit SHA
-   (never tag manually — the workflow creates tag + GitHub Release).
+The snapshot's `Cargo.lock` SHA256 is
+`6d6856fd48826d21526a9073968b3f3a38d2866cd4386f4fd73f3422cf854cb4`.
+It contains 31 package records: this crate plus **30 registry packages**.
+The following SPDX expressions were read from the exact cached registry
+package manifests. Regenerate the inventory if the lockfile changes, and
+preserve the applicable license notices.
+
+| SPDX expression | Locked packages |
+| --- | --- |
+| `MIT OR Apache-2.0` | allocator-api2 0.2.21; bitflags 2.13.2; cfg-if 1.0.5; errno 0.3.14; getrandom 0.4.3; hashbrown 0.16.1; itoa 1.0.18; libc 0.2.189; memmap2 0.9.11; once_cell 1.21.4; proc-macro2 1.0.107; quote 1.0.47; serde 1.0.229; serde_core 1.0.229; serde_derive 1.0.229; serde_json 1.0.151; syn 3.0.6; tempfile 3.27.0; windows-link 0.2.1; windows-sys 0.61.2 |
+| `Apache-2.0 OR MIT` | equivalent 1.0.2; fastrand 2.5.0 |
+| `Apache-2.0` | safetensors 0.8.0 |
+| `Zlib` | foldhash 0.2.0 |
+| `(MIT OR Apache-2.0) AND Unicode-3.0` | unicode-ident 1.0.26 |
+| `Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT` | linux-raw-sys 0.12.1; rustix 1.1.5 |
+| `Unlicense OR MIT` | memchr 2.8.3 |
+| `MIT OR Apache-2.0 OR LGPL-2.1-or-later` | r-efi 6.0.0 |
+| `MIT` | zmij 1.0.23 |
+
+### Real-checkpoint evidence on the audited snapshot
+
+Six fresh-process mmap smoke runs passed on `485f044`: first and warm runs
+for each local fixture below. The arguments used 128 MiB resident-growth and
+64 MiB Rust heap-peak budgets. All memory figures in this table are bytes.
+
+| Fixture | Resident growth, first / warm | Rust heap peak, first / warm |
+| --- | ---: | ---: |
+| Ollama Granite 4.2 8B GGUF | 4,108,288 / 4,014,080 | 268,354 / 268,354 |
+| Nemotron 3 Nano 4B single-file Safetensors | 1,462,272 / 1,474,560 | 523,687 / 523,687 |
+| Granite 4.1 3B two-shard Safetensors | 1,941,504 / 2,007,040 | 515,795 / 515,795 |
+
+The GGUF and Nemotron runs used the checked-in independent TSVs. Granite's
+six sample expectations were independently derived from its index and shard
+headers. Weight-file SHA256 values matched the Ollama blob identity or local
+Hugging Face download metadata; the Granite index matched its Git blob SHA-1
+ETag. These sampled metadata/byte checks do not establish inference or
+numerical dequantization correctness. Cache state was uncontrolled.
+
+The [smoke guide](checkpoint-smoke.md) describes the validation method and
+fixture selection. The [Qwen report](smoke/2026-10-02-local-qwen-release-prep.md),
+[Nemotron report](smoke/2026-10-02-local-nemotron.md), and
+[Ollama Granite report](smoke/2026-10-02-local-ollama-granite.md) retain the
+source identity and measurements of their earlier runs; they are not reports
+for an eventual final release commit.
+
+## Final publication checklist
+
+1. Select the reviewed, clean, merged commit and rerun every gate in
+   `RELEASE.md`. Record that SHA, toolchain versions, package file list, archive
+   size/checksum, dependency-license inventory, and current model evidence in
+   the release issue. Neither this snapshot nor a PR dry run substitutes for
+   qualification of the published commit.
+2. Have the maintainer confirm registry access and credential validity, then
+   authorize and run `cargo publish --locked`. A dry run is not an upload.
+3. Verify `engram-parser 0.3.0` on crates.io and the docs.rs all-feature build.
+4. Dispatch the Release workflow with `v0.3.0` and the published SHA. The
+   workflow creates the tag and GitHub Release; never tag manually in advance.
+5. Update the existing [Linear v0.3.0 release](https://linear.app/rpd-34/pipeline/engram-parser/release/first-cratesio-checkpoint-substrate-cf986d0537be)
+   with the published SHA, registry/docs/GitHub links, and verified release
+   notes. Mark it Released only after external publication is confirmed, then
+   reconcile GitHub #89 / RM-1786 and the release umbrella.
