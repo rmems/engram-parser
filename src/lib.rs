@@ -9,7 +9,7 @@
 //! [`TensorLocation`]), reads metadata, and fetches raw payload bytes
 //! without the caller branching on GGUF vs. Safetensors.
 //!
-//! Beneath that contract, [`gguf`] and (feature-gated) [`safetensors`]
+//! Beneath that contract, [`gguf`] and (feature-gated) `safetensors`
 //! are format-specific backends: each exposes its own full parsing
 //! surface for callers that need format semantics — GGML wire types,
 //! K-quant dequant, Safetensors manifests and MoE candidate discovery.
