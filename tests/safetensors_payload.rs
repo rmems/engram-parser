@@ -219,7 +219,8 @@ fn reads_stay_pinned_when_shard_path_is_replaced() {
     assert_eq!(checkpoint.tensor_bytes("w").unwrap(), vec![1, 2, 3, 4]);
 }
 
-#[cfg(unix)]
+// macOS filesystems reject invalid UTF-8 names before the parser can inspect them.
+#[cfg(target_os = "linux")]
 #[test]
 fn non_utf8_shard_filename_resolves() {
     use std::ffi::OsStr;
@@ -287,7 +288,8 @@ fn unrelated_escape_symlink_does_not_block_single_file() {
     assert_eq!(checkpoint.tensor_bytes("w").unwrap(), vec![3, 4]);
 }
 
-#[cfg(unix)]
+// macOS filesystems reject invalid UTF-8 names before the collision check.
+#[cfg(target_os = "linux")]
 #[test]
 fn colliding_lossy_shard_names_are_rejected() {
     use std::ffi::OsStr;

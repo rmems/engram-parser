@@ -7,6 +7,8 @@ excluded to raise the reported percentage. Opt-in real-checkpoint tests remain
 ignored in normal CI because model weights are not committed; Windows and macOS
 runtime branches are tested in their own CI jobs but are not covered by this
 Linux LCOV report.
+The two invalid-UTF-8 filename fixtures run on Linux only: macOS rejects
+those filenames at file creation, before the parser can exercise the case.
 
 Before the RM-1951 tests, on release tree
 `5d5a4d32f453e81cc86b49ce65a532a3570024c5`, the local Linux all-target,
