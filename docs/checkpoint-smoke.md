@@ -77,8 +77,8 @@ each name against the index's `weight_map`, then read its shard header: absolute
 offset is `8 + header_length + data_offsets[0]` and byte length is the offset
 span (also check shape × dtype size). The checked-in TSVs were derived with
 Python `struct`/`json` header reads independently of the Rust checkpoint API.
-The TSV checks native and normalized dtype labels; fixtures using a native alias
-such as `INT4` should currently use another sampled tensor (`I4` is normalized).
+The TSV records the native dtype label; normalized labels are checked after
+resolving aliases such as native `INT4` to normalized `I4`.
 
 No tensor payload is read when generating the expectations. Header inspection
 can warm filesystem cache; record that fact. File hashes, if computed, scan the
@@ -89,10 +89,13 @@ entire file and should be taken separately from smoke memory measurements.
 Output records UTC Unix time, OS/architecture/kernel, page size, exact arguments,
 file sizes, tensor/shard counts, metadata-key count, expected sample metadata,
 and FNV-1a fingerprints of the sampled windows (not cryptographic file hashes).
-For every tensor the common `Checkpoint` interface must return matching name,
-shape, dtype, byte length, source shard and absolute file offset. Raw bytes must
-be borrowed. Three windows of at most 4 KiB each (start, middle, end) are compared
-with independent positional file reads. Whole tensors are never scanned or
+For every TSV-sampled tensor the common `Checkpoint` interface must return
+matching name, shape, dtype, byte length, source shard and absolute file offset.
+Raw bytes must
+be borrowed. Unsampled inventory entries are checked for sorted, unique names;
+their metadata is not compared with external expectations. Three windows of at
+most 4 KiB each (start, middle, end) are compared with independent positional
+file reads. Whole tensors are never scanned or
 hashed. Tiny windows can overlap. Eight subsequent rounds alternate reverse
 and rotated lookup orders and require identical pointers, metadata and sampled
 bytes. Pointer equality alone is not proof of correct bytes or absence of copies.
@@ -111,8 +114,12 @@ All reported memory quantities are bytes:
 - `rss`: resident process memory from `smaps_rollup`; `anonymous` separates its
   anonymous pages. File-backed pages contribute to RSS without being heap copies.
 - `hwm`: kernel `VmHWM`; together with the largest observed precise RSS snapshot,
-  catches resident growth even if later pages are reclaimed. Growth is measured
-  relative to baseline RSS and includes report/harness overhead.
+  catches new process peaks even if later pages are reclaimed. The bound uses
+  the larger of observed RSS growth above baseline RSS and HWM growth above
+  baseline HWM (both saturating at zero). Startup peaks are excluded. A transient
+  peak below startup HWM between snapshots can still be missed; the Rust heap
+  tracker and copy audit provide additional evidence. Report/harness overhead
+  after baseline is included.
 - `heap_peak` and `largest_allocation`: atomically tracked Rust `System` allocator
   requests, including realloc and zeroed allocations, from process start. The
   peak catches transient Rust copies released before an RSS snapshot. It excludes
@@ -168,7 +175,8 @@ including base revision/patch, compiler versions, fixture revisions, sizes and
 hashes, license/provenance, TSVs, exact commands, cache conditions, phase memory,
 pass/fail and limitations. Include both first and warm fresh-process runs.
 Do not commit checkpoints or generated large artifacts. See
-[the initial report](smoke/2026-10-02.md).
+[the initial report](smoke/2026-10-02.md) and
+[PR review follow-up](smoke/2026-10-02-review-followup.md).
 
 Lightweight harness checks can be run explicitly with:
 

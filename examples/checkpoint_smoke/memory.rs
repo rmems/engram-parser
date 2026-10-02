@@ -82,6 +82,12 @@ impl Memory {
         })
     }
 
+    pub fn resident_growth_since(self, baseline: Self) -> usize {
+        self.rss_peak
+            .saturating_sub(baseline.rss)
+            .max(self.hwm.saturating_sub(baseline.hwm))
+    }
+
     pub fn report(self, phase: &str) {
         println!(
             "memory phase={phase} rss={} hwm={} virtual={} anonymous={} heap_peak={} largest_allocation={}",
@@ -99,4 +105,35 @@ fn field(text: &str, key: &str) -> Result<usize, Box<dyn std::error::Error>> {
         .parse::<usize>()?
         .checked_mul(1024)
         .ok_or("memory counter overflow")?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn snapshot(rss: usize, hwm: usize) -> Memory {
+        Memory {
+            rss,
+            rss_peak: rss,
+            hwm,
+            virtual_bytes: 0,
+            anonymous: 0,
+            heap_peak: 0,
+            largest: 0,
+        }
+    }
+
+    #[test]
+    fn resident_growth_excludes_startup_high_water() {
+        let baseline = snapshot(10, 100);
+        assert_eq!(snapshot(10, 100).resident_growth_since(baseline), 0);
+        assert_eq!(snapshot(30, 100).resident_growth_since(baseline), 20);
+        assert_eq!(snapshot(10, 140).resident_growth_since(baseline), 40);
+        assert_eq!(snapshot(5, 90).resident_growth_since(baseline), 0);
+        let reclaimed = Memory {
+            rss_peak: 50,
+            ..snapshot(10, 100)
+        };
+        assert_eq!(reclaimed.resident_growth_since(baseline), 40);
+    }
 }

@@ -233,10 +233,7 @@ pub fn main() -> Result<()> {
     }
     let final_memory = Memory::read()?;
     final_memory.report("errors_checked");
-    let rss_growth = final_memory
-        .rss_peak
-        .max(final_memory.hwm)
-        .saturating_sub(baseline.rss);
+    let rss_growth = final_memory.resident_growth_since(baseline);
     println!(
         "observed rss_or_hwm_growth={rss_growth} heap_peak={} largest_allocation={}",
         final_memory.heap_peak, final_memory.largest
@@ -255,14 +252,25 @@ pub fn main() -> Result<()> {
     Ok(())
 }
 
+fn expected_dtype_label(native: &str) -> &str {
+    match native {
+        "INT4" => "I4",
+        other => other,
+    }
+}
+
 fn verify_metadata(checkpoint: &dyn Checkpoint, e: &Expected) -> Result<()> {
     let t = checkpoint
         .tensor(&e.name)
         .ok_or_else(|| format!("expected tensor {:?} missing", e.name))?;
+    verify_tensor_metadata(t, e)
+}
+
+fn verify_tensor_metadata(t: &engram_parser::TensorInfo, e: &Expected) -> Result<()> {
     require(
         t.name == e.name
             && t.native_dtype == e.dtype
-            && t.dtype.label() == e.dtype
+            && t.dtype.label() == expected_dtype_label(&e.dtype)
             && t.shape.dims() == e.shape
             && t.byte_len == e.bytes
             && t.location.source == e.shard
@@ -398,6 +406,33 @@ mod tests {
         assert!(probe(&checkpoint, &e).is_err());
         e.shard = "wrong.safetensors".into();
         assert!(verify_metadata(&checkpoint, &e).is_err());
+    }
+
+    #[test]
+    fn native_dtype_alias_matches_normalized_metadata() {
+        use engram_parser::{TensorDType, TensorInfo, TensorLocation, TensorShape};
+        let mut tensor = TensorInfo::new(
+            "packed",
+            TensorDType::I4,
+            TensorShape::outermost_first(vec![2]),
+            1,
+            TensorLocation::new("a.safetensors", 0, Some(64)),
+        )
+        .with_native_dtype("INT4");
+        let expected = Expected {
+            name: "packed".into(),
+            dtype: "INT4".into(),
+            shape: vec![2],
+            bytes: 1,
+            shard: "a.safetensors".into(),
+            offset: 64,
+        };
+        verify_tensor_metadata(&tensor, &expected).unwrap();
+        tensor.dtype = TensorDType::U4;
+        assert!(verify_tensor_metadata(&tensor, &expected).is_err());
+        tensor.dtype = TensorDType::I4;
+        tensor.native_dtype = "I4".into();
+        assert!(verify_tensor_metadata(&tensor, &expected).is_err());
     }
 
     #[test]
