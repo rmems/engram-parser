@@ -93,6 +93,11 @@ This work targets **v0.3.0, the first public crates.io publication**. Version
   `Checkpoint::tensor_bytes` stay the core contract. Safetensors
   `discover_candidates` is unchanged and remains a separate,
   format-specific discovery surface. No behavior changes.
+- **Docs/packaging ([RM-1793](https://linear.app/rpd-34/issue/RM-1793) / RM-1782):**
+  the crate `description` now leads with the GGUF + Safetensors
+  checkpoint/tensor substrate for ANN/SNN research rather than MoE
+  extraction; README scope/boundary docs name `grok-ozempic` for
+  GOZ1/Grok quantization policy. No API changes.
 - **Charter reversal (#10):** safetensors support ships **inside this
   crate** behind an off-by-default `safetensors` cargo feature, not in a
   separate `safetensors-parser` crate. This supersedes the "engram-parser
