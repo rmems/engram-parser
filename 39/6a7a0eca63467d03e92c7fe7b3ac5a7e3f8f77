@@ -1,0 +1,23 @@
+docs/smoke/2026-10-02-local-qwen-release-prep.md
+  s_da32682410c56c::t_09e345d9d48c26 1-44
+docs/release-v0.3.0-checklist.md
+  s_da32682410c56c::t_9956377a11fa2d 53-59
+RELEASE.md
+  s_da32682410c56c::t_8a978a16eb9b98 12-16,35-39,51-55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "396a7a0eca63467d03e92c7fe7b3ac5a7e3f8f77",
+  "prompts": {},
+  "sessions": {
+    "s_da32682410c56c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0fac2-7243-7ff2-b027-3fb599c71a16",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "Raul Cardenas Montoya <montoyaraul34@gmail.com>"
+    }
+  }
+}
