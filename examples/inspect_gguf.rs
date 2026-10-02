@@ -9,9 +9,7 @@
 //! ENGRAM_GGUF=~/.models/gguf/foo.gguf cargo run --example inspect_gguf
 //! ```
 //!
-//! CPU-only. No CUDA, no dequant, no generation. For GPU experiments on the
-//! same weights, use `~/rmems/blackwell-kernel-lab` (or myelin-accelerator
-//! kernels), not this crate.
+//! CPU-only. No CUDA, no dequant, no generation.
 
 use std::collections::HashMap;
 use std::env;

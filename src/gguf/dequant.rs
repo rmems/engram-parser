@@ -452,7 +452,7 @@ mod tests {
     }
 
     #[test]
-    fn q8_0_corinth_unit_scale() {
+    fn q8_0_unit_scale() {
         let mut block = vec![0u8; Q8_0_BYTES];
         block[0..2].copy_from_slice(&f16_one());
         for q in &mut block[2..] {
@@ -464,7 +464,7 @@ mod tests {
 
     #[test]
     fn q5_k_handmade_ones() {
-        // Corinth synthetic: d=1, dmin=0, scales=0x01, ql=0x11, qh=0 → 1.0.
+        // Synthetic block: d=1, dmin=0, scales=0x01, ql=0x11, qh=0 → 1.0.
         let mut block = vec![0u8; Q5_K_BYTES];
         block[0..2].copy_from_slice(&f16_one());
         for b in &mut block[4..16] {
@@ -523,7 +523,7 @@ mod tests {
     }
 
     #[test]
-    fn iq3_m_zero_scales_corinth_vector() {
+    fn iq3_m_zero_scales_vector() {
         let mut block = vec![0u8; IQ3_M_BYTES];
         block[0..2].copy_from_slice(&f16_one());
         for b in &mut block[34..98] {

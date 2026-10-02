@@ -4,9 +4,9 @@
 //!
 //! Maps the file with read-only [`memmap2`] and reuses the same header /
 //! tensor-directory parser as [`super::parse_bytes`]. CUDA host-register is
-//! intentionally out of scope (that belongs in myelin-accelerator). Callers
-//! can still obtain **page-aligned** tensor byte ranges so a later GPU layer
-//! can pin pages without this crate depending on CUDA.
+//! intentionally out of scope: this crate stays dependency-light and CPU-only.
+//! Callers can still obtain **page-aligned** tensor byte ranges so a later GPU
+//! layer can pin pages without this crate depending on CUDA.
 
 use std::collections::HashMap;
 use std::fs::File;

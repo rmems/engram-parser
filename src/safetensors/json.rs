@@ -686,7 +686,7 @@ mod tests {
     }
 
     #[test]
-    fn compact_string_array_matches_corinth_encoding() {
+    fn compact_string_array_canonical_encoding() {
         let value = JsonValue::Array(vec![JsonValue::String("unused.safetensors".into())]);
         assert_eq!(encode_compact(&value), r#"["unused.safetensors"]"#);
     }
