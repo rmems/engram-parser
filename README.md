@@ -17,14 +17,9 @@ Pure-Rust **GGUF + Safetensors checkpoint/tensor substrate** with optional forma
 
 ## Install
 
-v0.3.0 is not yet published to crates.io. Until publication completes, use a git dependency pinned to a commit or tag:
-
-```toml
-[dependencies]
-engram-parser = { git = "https://github.com/rmems/engram-parser", rev = "<commit-or-tag>" }
-```
-
-Once published (see [Releases](#releases)), pick one — GGUF only, no dependencies enabled by default:
+For a published 0.3 release, choose one of the following dependency configurations.
+Available versions are listed on [crates.io](https://crates.io/crates/engram-parser/versions).
+GGUF only, with no dependencies enabled by default:
 
 ```toml
 [dependencies]
@@ -45,7 +40,19 @@ or with Safetensors plus borrowed mmap payloads:
 engram-parser = { version = "0.3", features = ["safetensors", "mmap"] }
 ```
 
-Equivalently: `cargo add engram-parser` (add `--features safetensors` / `mmap` as needed).
+Equivalently, for a published release: `cargo add engram-parser@0.3` (add
+`--features safetensors` / `mmap` as needed).
+
+For a development snapshot, including before the first registry release, pin
+an exact Git commit. For example:
+
+```toml
+[dependencies]
+engram-parser = { git = "https://github.com/rmems/engram-parser", rev = "485f0445a93c1ec06e8142a2d602c33030d753d7" }
+```
+
+The same feature names apply to Git dependencies. See [Releases](#releases)
+for the publication process.
 
 | Feature | Adds | Enables |
 |---|---|---|
