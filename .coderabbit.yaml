@@ -13,20 +13,20 @@ reviews:
   path_instructions:
     - path: '**/*.rs'
       instructions: >-
-        Rust edition 2024; `rust-version = "1.97.1"` is enforced by a dedicated MSRV
-        job; `rust-toolchain.toml` tracks stable. Do not suggest downgrading the
+        Rust edition 2024; rust-version = "1.97.1" is enforced by a dedicated MSRV
+        job; rust-toolchain.toml tracks stable. Do not suggest downgrading the
         edition or using std/language APIs newer than the pinned toolchain/MSRV. CI
-        gate: `cargo clippy --all-targets --locked -- -D warnings`, `cargo test
-        --locked`, plus `--all-features` builds/tests and the MSRV 1.97.1 job. Flag
-        anything that would fail `cargo fmt --check` or clippy `-D warnings`. The
-        default build is GGUF-only with zero dependencies; `mmap` and `safetensors`
-        are optional features and must stay behind `#[cfg(feature = ...)]`. Flag any
-        new `unsafe` outside `src/gguf/map.rs`, `src/safetensors/map.rs`, and
-        `src/safetensors/paths.rs`.
+        gate: cargo clippy --all-targets --locked -- -D warnings, cargo test
+        --locked, plus --all-features builds/tests and the MSRV 1.97.1 job. Flag
+        anything that would fail cargo fmt --check or clippy -D warnings. The
+        default build is GGUF-only with zero dependencies; mmap and safetensors
+        are optional features and must stay behind #[cfg(feature = ...)]. Flag any
+        new unsafe outside src/gguf/map.rs, src/safetensors/map.rs, and
+        src/safetensors/paths.rs.
     - path: src/{gguf/map.rs,safetensors/**}
       instructions: >-
-        Scrutinize every `unsafe` block (currently in `src/gguf/map.rs`,
-        `src/safetensors/map.rs`, `src/safetensors/paths.rs`): require a written
+        Scrutinize every unsafe block (currently in src/gguf/map.rs,
+        src/safetensors/map.rs, src/safetensors/paths.rs): require a written
         safety justification covering aliasing, lifetimes, alignment and bounds;
         prefer a safe abstraction when one exists. For memory maps, document that
         the file must not be truncated or mutated while mapped, and validate header
@@ -34,11 +34,11 @@ reviews:
     - path: '**/Cargo.toml'
       instructions: >-
         Cargo manifest. Call out new dependencies and feature changes, and keep
-        `rust-version` / `edition` consistent with CI. Default features must stay
+        rust-version / edition consistent with CI. Default features must stay
         empty (zero-dependency GGUF parser).
     - path: tests/fixtures/**
       instructions: >-
-        Small binary fixtures (`.safetensors`) used by the parser tests; changes
+        Small binary fixtures (.safetensors) used by the parser tests; changes
         must be explained by a parser change.
     - path: '**/Dockerfile'
       instructions: >-
@@ -46,8 +46,8 @@ reviews:
         versions in line with the CI pins.
     - path: .github/workflows/**
       instructions: >-
-        GitHub Actions workflows. Keep `permissions:` least-privilege and job
-        commands in sync with the local gates documented in the repo. Every `uses:`
+        GitHub Actions workflows. Keep permissions: least-privilege and job
+        commands in sync with the local gates documented in the repo. Every uses:
         is pinned to a full commit SHA today; new or bumped actions must be too.
   tools:
     clippy:
