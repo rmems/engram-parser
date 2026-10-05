@@ -86,8 +86,11 @@ impl Checkpoint for GgufBackend {
 
 /// [`Checkpoint`] over a memory-mapped [`crate::GgufLayoutMmap`].
 ///
-/// Callers must not truncate the file while the backend is alive
-/// (standard mmap invariant).
+/// Callers must not modify the file while the backend is alive:
+/// in-place writes are silently visible, truncation within a payload's
+/// last page yields zeros for the tail, and truncation below a page
+/// boundary raises `SIGBUS` (see "Concurrent modification" on
+/// [`crate::load_gguf_mmap`]).
 #[cfg(feature = "mmap")]
 #[derive(Debug)]
 pub struct GgufMmapBackend {

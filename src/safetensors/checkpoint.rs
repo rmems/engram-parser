@@ -113,6 +113,11 @@ impl SafetensorsCheckpoint {
     ///
     /// Reads only `data_offsets[0]..data_offsets[1]` of the owning shard,
     /// so memory use is bounded by the tensor's byte size.
+    ///
+    /// The retained file handle pins the shard inode, but there are no
+    /// checksums: bytes rewritten in place under the same inode are
+    /// silently visible here. Keep shard files stable for the
+    /// checkpoint's lifetime.
     pub fn tensor_bytes(&self, name: &str) -> Result<Vec<u8>> {
         let tensor = self.tensor(name)?;
         let shard = self.shard_for(tensor)?;

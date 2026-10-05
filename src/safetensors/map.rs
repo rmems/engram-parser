@@ -47,6 +47,15 @@ struct MappedShard {
 /// memory mappings and upstream-crate validation.
 ///
 /// Requires both the `safetensors` and `mmap` cargo features.
+///
+/// # Concurrent modification
+///
+/// Mappings track the live shard files; there are no checksums. In-place
+/// writes are silently visible to [`SafetensorsCheckpointMmap::tensor_bytes`], truncation
+/// within a payload's last page yields zeros for the missing tail, and
+/// truncation below a page boundary raises `SIGBUS`, killing the process
+/// (standard Unix `mmap` semantics). Keep shard files stable for the
+/// checkpoint's lifetime.
 pub fn open_safetensors_checkpoint_mmap(
     path: impl AsRef<Path>,
 ) -> Result<SafetensorsCheckpointMmap> {
