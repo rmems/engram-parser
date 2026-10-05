@@ -5,26 +5,29 @@
 //! POSIX concepts.
 #![cfg(unix)]
 
-use std::ffi::CString;
 use std::fs;
-use std::os::unix::ffi::OsStrExt;
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use engram_parser::{ParserError, load_gguf, open_checkpoint};
 
 fn tmpdir(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("engram-nonregular-{tag}-{}", std::process::id()));
+    // A stale dir from an earlier run can hold a FIFO or socket at this
+    // path; clear it so fixture creation never fails before the parser
+    // is exercised.
+    let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     dir
 }
 
 fn mkfifo(path: &Path) {
-    unsafe extern "C" {
-        fn mkfifo(path: *const i8, mode: u32) -> i32;
-    }
-    let c = CString::new(path.as_os_str().as_bytes()).unwrap();
-    assert_eq!(unsafe { mkfifo(c.as_ptr(), 0o644) }, 0, "mkfifo {path:?}");
+    let status = Command::new("mkfifo")
+        .arg(path)
+        .status()
+        .expect("spawn mkfifo");
+    assert!(status.success(), "mkfifo {path:?}");
 }
 
 fn assert_not_regular(err: ParserError) {
@@ -70,14 +73,16 @@ fn open_checkpoint_fifo_safetensors_errors_instead_of_hanging() {
     let dir = tmpdir("fifo-st");
     let fifo = dir.join("model.safetensors");
     mkfifo(&fifo);
-    // With the `safetensors` feature this is InvalidLayout; without it the
-    // backend is disabled — either way it must not hang or panic.
+    // `open_checkpoint`'s detect gate rejects non-regular paths as
+    // UnsupportedFormat before the backend runs, regardless of the
+    // extension; without the `safetensors` feature the same gate fires
+    // first anyway. The shard-level check (InvalidLayout) is exercised
+    // through `open_safetensors_checkpoint` below.
     let err = open_checkpoint(&fifo).unwrap_err();
     match err {
-        ParserError::InvalidLayout { reason, .. } => {
-            assert!(reason.contains("not a regular file"), "got: {reason}");
+        ParserError::UnsupportedFormat { reason, .. } => {
+            assert_eq!(reason, "not a regular file");
         }
-        ParserError::FeatureDisabled { .. } | ParserError::UnsupportedFormat { .. } => {}
         other => panic!("unexpected error for FIFO safetensors input: {other}"),
     }
 }
