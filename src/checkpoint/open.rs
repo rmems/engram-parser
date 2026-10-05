@@ -132,10 +132,10 @@ pub fn open_checkpoint(path: impl AsRef<Path>) -> Result<AnyCheckpoint> {
 ///
 /// Callers must not modify the files while the checkpoint is alive:
 /// in-place writes are silently visible to readers, truncation within a
-/// payload's last page yields zeros for the missing tail, and truncation
-/// below a page boundary raises `SIGBUS`, killing the process (standard
-/// Unix `mmap` semantics; see "Concurrent modification" on
-/// [`crate::load_gguf_mmap`]).
+/// payload's last page yields zeros for the missing tail, and truncating
+/// so a reader accesses a page wholly past EOF raises `SIGBUS`, killing
+/// the process (standard Unix `mmap` semantics; see "Concurrent
+/// modification" on [`crate::load_gguf_mmap`]).
 #[cfg(feature = "mmap")]
 pub fn open_checkpoint_mmap(path: impl AsRef<Path>) -> Result<AnyCheckpoint> {
     let path = path.as_ref();

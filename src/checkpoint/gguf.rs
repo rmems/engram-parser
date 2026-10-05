@@ -88,9 +88,9 @@ impl Checkpoint for GgufBackend {
 ///
 /// Callers must not modify the file while the backend is alive:
 /// in-place writes are silently visible, truncation within a payload's
-/// last page yields zeros for the tail, and truncation below a page
-/// boundary raises `SIGBUS` (see "Concurrent modification" on
-/// [`crate::load_gguf_mmap`]).
+/// last page yields zeros for the tail, and truncating so a reader
+/// accesses a page wholly past EOF raises `SIGBUS` (see "Concurrent
+/// modification" on [`crate::load_gguf_mmap`]).
 #[cfg(feature = "mmap")]
 #[derive(Debug)]
 pub struct GgufMmapBackend {

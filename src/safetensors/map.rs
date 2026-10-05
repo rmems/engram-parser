@@ -53,7 +53,7 @@ struct MappedShard {
 /// Mappings track the live shard files; there are no checksums. In-place
 /// writes are silently visible to [`SafetensorsCheckpointMmap::tensor_bytes`], truncation
 /// within a payload's last page yields zeros for the missing tail, and
-/// truncation below a page boundary raises `SIGBUS`, killing the process
+/// truncating so a reader accesses a page wholly past EOF raises `SIGBUS`, killing the process
 /// (standard Unix `mmap` semantics). Keep shard files stable for the
 /// checkpoint's lifetime.
 pub fn open_safetensors_checkpoint_mmap(
