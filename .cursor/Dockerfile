@@ -5,6 +5,8 @@ ARG RUST_VERSION=1.99.0
 
 FROM rust:${RUST_VERSION}-slim
 
+ARG RUST_VERSION
+
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
@@ -29,7 +31,7 @@ RUN groupadd --gid 1000 ubuntu \
 RUN printf '%s\n' \
         'export CARGO_HOME="/usr/local/cargo"' \
         'export RUSTUP_HOME="/usr/local/rustup"' \
-        'export PATH="/usr/local/cargo/bin:/usr/local/rustup/toolchains/1.99.0-x86_64-unknown-linux-gnu/bin:$PATH"' \
+        "export PATH=\"/usr/local/cargo/bin:/usr/local/rustup/toolchains/${RUST_VERSION}-x86_64-unknown-linux-gnu/bin:\$PATH\"" \
         > /etc/profile.d/cargo.sh \
     && chmod 644 /etc/profile.d/cargo.sh \
     && bash -c 'for f in /usr/local/cargo/bin/*; do ln -sf "$f" /usr/local/bin/; done' \
