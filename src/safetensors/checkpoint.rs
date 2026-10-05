@@ -224,6 +224,17 @@ pub(super) fn resolve_checkpoint_shards(
                     None => direct,
                 }
             };
+            // Reject non-regular shard paths before opening: `File::open` on
+            // a FIFO blocks until a writer appears.
+            if !fs::metadata(&shard_path)
+                .map_err(|e| io_error(&shard_path, e))?
+                .is_file()
+            {
+                return Err(model_load(
+                    &shard_path,
+                    "Safetensors shard is not a regular file".into(),
+                ));
+            }
             let mut file = File::open(&shard_path).map_err(|e| io_error(&shard_path, e))?;
             let data_begin = shard_data_begin(&shard_path, &mut file)?;
             verify_shard_header(

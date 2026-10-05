@@ -93,6 +93,20 @@ pub fn load_gguf_mmap_with_limits<P: AsRef<Path>>(
 ) -> Result<GgufLayoutMmap> {
     let path_ref = path.as_ref();
     let path_str = path_ref.display().to_string();
+    // Reject non-regular files before opening: `File::open` on a FIFO
+    // blocks until a writer appears.
+    if !std::fs::metadata(path_ref)
+        .map_err(|e| ParserError::Io {
+            path: path_str.clone(),
+            source: e,
+        })?
+        .is_file()
+    {
+        return Err(ParserError::UnsupportedFormat {
+            path: path_str,
+            reason: "not a regular file".to_string(),
+        });
+    }
     let file = File::open(path_ref).map_err(|e| ParserError::Io {
         path: path_str.clone(),
         source: e,

@@ -67,6 +67,18 @@ pub fn load_gguf<P: AsRef<Path>>(path: P) -> Result<GgufLayout> {
 pub fn load_gguf_with_limits<P: AsRef<Path>>(path: P, limits: ParseLimits) -> Result<GgufLayout> {
     let path_ref = path.as_ref();
     let path_str = path_ref.display().to_string();
+    // Reject non-regular files before reading: `fs::read` on a FIFO blocks
+    // waiting for a writer, and a character device streams unbounded data.
+    let metadata = fs::metadata(path_ref).map_err(|e| ParserError::Io {
+        path: path_str.clone(),
+        source: e,
+    })?;
+    if !metadata.is_file() {
+        return Err(ParserError::UnsupportedFormat {
+            path: path_str,
+            reason: "not a regular file".to_string(),
+        });
+    }
     let bytes = fs::read(path_ref).map_err(|e| ParserError::Io {
         path: path_str.clone(),
         source: e,
