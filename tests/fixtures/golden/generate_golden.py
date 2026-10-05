@@ -136,11 +136,11 @@ TYPES = {
     'iq3_m': (111, 256, dequant_iq3_m),
 }
 
-# d-field bit patterns exercised per dtype: two PRNG blocks plus blocks
-# whose scale field covers f16 zero, a denormal, and the max half value
-# (one PRNG block plus three scale-sweep blocks per dtype).
+# Scale-field bit patterns exercised per dtype: one PRNG block plus blocks
+# whose f16 scale field(s) cover zero, a denormal, and the max half value.
+# q5_k has two f16 fields (d at 0, dmin at 2); both get the sweep.
 SCALE_BITS = (0x0000, 0x0001, 0x7BFF)
-SCALE_OFFSET = {'q8_0': 0, 'q5_k': 0, 'q6_k': 208, 'iq3_m': 0}
+SCALE_OFFSETS = {'q8_0': (0,), 'q5_k': (0, 2), 'q6_k': (208,), 'iq3_m': (0,)}
 
 
 def main():
@@ -152,9 +152,9 @@ def main():
         ]
         for dbits in SCALE_BITS:
             b = bytearray(rng.randrange(256) for _ in range(bsize))
-            off = SCALE_OFFSET[name]
-            b[off] = dbits & 0xFF
-            b[off + 1] = dbits >> 8
+            for off in SCALE_OFFSETS[name]:
+                b[off] = dbits & 0xFF
+                b[off + 1] = dbits >> 8
             blocks.append(bytes(b))
         packed = b''.join(blocks)
         expected = b''.join(struct.pack('<f', v) for v in fn(blocks))
