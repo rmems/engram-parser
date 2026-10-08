@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Idempotent Cloud Agent install: match CI gates (fmt, clippy, test --all-features).
+# Idempotent Cloud Agent install: prefetch and compile only (no fmt/clippy/test execution).
 set -euo pipefail
 
 rustc --version | grep -F '1.99.0 ' \
@@ -9,6 +9,5 @@ rustc --version | grep -F '1.99.0 ' \
   }
 
 cargo fetch --locked
-cargo fmt --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --all-features
+cargo build --all-features --locked
+cargo test --no-run --all-features --locked
