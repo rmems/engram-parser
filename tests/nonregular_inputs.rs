@@ -114,10 +114,21 @@ fn open_safetensors_checkpoint_fifo_errors_instead_of_hanging() {
 /// `open_checkpoint` rejects a socket path before trying to open it.
 #[test]
 fn open_checkpoint_socket_errors() {
-    let dir = tmpdir("sock");
-    let sock = dir.0.join("model.gguf");
+    // Socket paths are capped by `SUN_LEN` (104 bytes on macOS), which the
+    // `TestDir` naming scheme can exceed there, so the socket itself lives at
+    // a short path and is cleaned up explicitly.
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let sock = PathBuf::from(format!(
+        "/tmp/es{}-{}.gguf",
+        std::process::id(),
+        nanos % 1_000_000
+    ));
     let _listener = UnixListener::bind(&sock).unwrap();
     assert_not_regular(open_checkpoint(&sock).unwrap_err());
+    let _ = fs::remove_file(&sock);
 }
 
 /// Character devices can stream unbounded data; they must be rejected
