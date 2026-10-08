@@ -69,6 +69,9 @@ pub fn load_gguf_with_limits<P: AsRef<Path>>(path: P, limits: ParseLimits) -> Re
     let path_str = path_ref.display().to_string();
     // Reject non-regular files before reading: `fs::read` on a FIFO blocks
     // waiting for a writer, and a character device streams unbounded data.
+    // A non-regular file swapped in after this check can still reach
+    // `fs::read` — the residual path->open race is inherent to path-based
+    // reads.
     let metadata = fs::metadata(path_ref).map_err(|e| ParserError::Io {
         path: path_str.clone(),
         source: e,

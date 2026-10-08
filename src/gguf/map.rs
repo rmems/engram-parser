@@ -94,7 +94,9 @@ pub fn load_gguf_mmap_with_limits<P: AsRef<Path>>(
     let path_ref = path.as_ref();
     let path_str = path_ref.display().to_string();
     // Reject non-regular files before opening: `File::open` on a FIFO
-    // blocks until a writer appears.
+    // blocks until a writer appears. A non-regular file swapped in after
+    // this check can still reach `File::open` — the residual path->open
+    // race is inherent to path-based opens.
     if !std::fs::metadata(path_ref)
         .map_err(|e| ParserError::Io {
             path: path_str.clone(),

@@ -225,7 +225,9 @@ pub(super) fn resolve_checkpoint_shards(
                 }
             };
             // Reject non-regular shard paths before opening: `File::open` on
-            // a FIFO blocks until a writer appears.
+            // a FIFO blocks until a writer appears. A non-regular file
+            // swapped in after this check can still reach `File::open` —
+            // the residual path->open race is inherent to path-based opens.
             if !fs::metadata(&shard_path)
                 .map_err(|e| io_error(&shard_path, e))?
                 .is_file()

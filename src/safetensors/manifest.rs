@@ -658,8 +658,9 @@ fn reject_duplicate_tensor_ownership(
 
 pub(super) fn inspect_shard(path: &Path, root: &Path) -> Result<ShardInspection> {
     // Check the path type before opening: `File::open` on a FIFO blocks
-    // until a writer appears. The fd-based `file.metadata()` below still
-    // reports the real length of whatever inode was opened.
+    // until a writer appears. The fd-based `file.metadata()` below pins
+    // `file_len` to the inode actually opened, so a replaced path cannot
+    // silently change the length after this point.
     if !fs::metadata(path).map_err(|e| io_error(path, e))?.is_file() {
         return Err(model_load(
             path,
@@ -802,6 +803,8 @@ pub(super) fn parse_header(
 }
 
 pub(super) fn read_index(path: &Path) -> Result<RawIndex> {
+    // Same check-then-read window as the other guards: a non-regular file
+    // swapped in after `fs::metadata` can still reach `fs::read` below.
     let metadata = fs::metadata(path).map_err(|e| io_error(path, e))?;
     if !metadata.is_file() {
         return Err(model_load(

@@ -9,24 +9,39 @@ use std::fs;
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use engram_parser::{ParserError, load_gguf, open_checkpoint};
 
-fn tmpdir(tag: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("engram-nonregular-{tag}-{}", std::process::id()));
-    // A stale dir from an earlier run can hold a FIFO or socket at this
-    // path; clear it so fixture creation never fails before the parser
-    // is exercised.
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).unwrap();
-    dir
+/// Drop-cleaned fixture dir (same convention as `checkpoint_api.rs`).
+struct TestDir(PathBuf);
+
+impl Drop for TestDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
 }
 
+fn tmpdir(tag: &str) -> TestDir {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let path = std::env::temp_dir().join(format!(
+        "engram-nonregular-{tag}-{}-{nanos}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&path).unwrap();
+    TestDir(path)
+}
+
+/// Requires coreutils `mkfifo` on PATH (present on every unix CI image we
+/// run on). Using the CLI keeps this test free of `unsafe`/FFI.
 fn mkfifo(path: &Path) {
     let status = Command::new("mkfifo")
         .arg(path)
         .status()
-        .expect("spawn mkfifo");
+        .expect("spawn mkfifo (requires coreutils on PATH)");
     assert!(status.success(), "mkfifo {path:?}");
 }
 
@@ -46,7 +61,7 @@ fn assert_not_regular(err: ParserError) {
 #[test]
 fn open_checkpoint_fifo_gguf_errors_instead_of_hanging() {
     let dir = tmpdir("fifo-gguf");
-    let fifo = dir.join("model.gguf");
+    let fifo = dir.0.join("model.gguf");
     mkfifo(&fifo);
     assert_not_regular(open_checkpoint(&fifo).unwrap_err());
 }
@@ -54,7 +69,7 @@ fn open_checkpoint_fifo_gguf_errors_instead_of_hanging() {
 #[test]
 fn load_gguf_fifo_errors_instead_of_hanging() {
     let dir = tmpdir("fifo-load");
-    let fifo = dir.join("model.gguf");
+    let fifo = dir.0.join("model.gguf");
     mkfifo(&fifo);
     assert_not_regular(load_gguf(&fifo).unwrap_err());
 }
@@ -63,7 +78,7 @@ fn load_gguf_fifo_errors_instead_of_hanging() {
 #[test]
 fn load_gguf_mmap_fifo_errors_instead_of_hanging() {
     let dir = tmpdir("fifo-mmap");
-    let fifo = dir.join("model.gguf");
+    let fifo = dir.0.join("model.gguf");
     mkfifo(&fifo);
     assert_not_regular(engram_parser::load_gguf_mmap(&fifo).unwrap_err());
 }
@@ -71,7 +86,7 @@ fn load_gguf_mmap_fifo_errors_instead_of_hanging() {
 #[test]
 fn open_checkpoint_fifo_safetensors_errors_instead_of_hanging() {
     let dir = tmpdir("fifo-st");
-    let fifo = dir.join("model.safetensors");
+    let fifo = dir.0.join("model.safetensors");
     mkfifo(&fifo);
     // `open_checkpoint`'s detect gate rejects non-regular paths as
     // UnsupportedFormat before the backend runs, regardless of the
@@ -91,7 +106,7 @@ fn open_checkpoint_fifo_safetensors_errors_instead_of_hanging() {
 #[test]
 fn open_safetensors_checkpoint_fifo_errors_instead_of_hanging() {
     let dir = tmpdir("fifo-st-open");
-    let fifo = dir.join("model.safetensors");
+    let fifo = dir.0.join("model.safetensors");
     mkfifo(&fifo);
     assert_not_regular(engram_parser::safetensors::open_safetensors_checkpoint(&fifo).unwrap_err());
 }
@@ -100,7 +115,7 @@ fn open_safetensors_checkpoint_fifo_errors_instead_of_hanging() {
 #[test]
 fn open_checkpoint_socket_errors() {
     let dir = tmpdir("sock");
-    let sock = dir.join("model.gguf");
+    let sock = dir.0.join("model.gguf");
     let _listener = UnixListener::bind(&sock).unwrap();
     assert_not_regular(open_checkpoint(&sock).unwrap_err());
 }
@@ -117,7 +132,7 @@ fn load_gguf_character_device_errors() {
 #[test]
 fn missing_file_is_still_io_error() {
     let dir = tmpdir("missing");
-    let err = open_checkpoint(dir.join("nope.gguf")).unwrap_err();
+    let err = open_checkpoint(dir.0.join("nope.gguf")).unwrap_err();
     assert!(matches!(err, ParserError::Io { .. }), "got: {err}");
 }
 
@@ -125,7 +140,7 @@ fn missing_file_is_still_io_error() {
 #[test]
 fn regular_file_reaches_the_parser() {
     let dir = tmpdir("regular");
-    let path = dir.join("model.gguf");
+    let path = dir.0.join("model.gguf");
     fs::write(&path, b"not a gguf file").unwrap();
     let err = load_gguf(&path).unwrap_err();
     match err {
