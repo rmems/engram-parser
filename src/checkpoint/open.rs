@@ -130,7 +130,12 @@ pub fn open_checkpoint(path: impl AsRef<Path>) -> Result<AnyCheckpoint> {
 /// Like [`open_checkpoint`], but memory-maps GGUF files and Safetensors
 /// shards so payloads are borrowed from the mappings.
 ///
-/// Callers must not truncate the files while the checkpoint is alive.
+/// Callers must not modify the files while the checkpoint is alive:
+/// in-place writes are silently visible to readers, truncation within a
+/// payload's last page yields zeros for the missing tail, and truncating
+/// so a reader accesses a page wholly past EOF raises `SIGBUS`, killing
+/// the process (standard Unix `mmap` semantics; see "Concurrent
+/// modification" on [`crate::load_gguf_mmap`]).
 #[cfg(feature = "mmap")]
 pub fn open_checkpoint_mmap(path: impl AsRef<Path>) -> Result<AnyCheckpoint> {
     let path = path.as_ref();

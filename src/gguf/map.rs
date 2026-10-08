@@ -80,6 +80,19 @@ impl<'a> PageAlignedTensorBytes<'a> {
 ///
 /// Requires the `mmap` cargo feature (`memmap2`). The default
 /// [`super::load_gguf`] path is unchanged.
+///
+/// # Concurrent modification
+///
+/// The mapping tracks the live file; there are no checksums. Concurrent
+/// modification while the [`GgufLayoutMmap`] is alive is a documented
+/// limitation, not a detected error:
+/// - Writing payload bytes in place is silently visible to
+///   [`GgufLayoutMmap::tensor_bytes`] — no revalidation happens.
+/// - Truncating the file so a tensor's last page is still partially inside
+///   the file returns zeros for the missing tail.
+/// - Truncating the file so a payload page lies wholly past EOF delivers
+///   `SIGBUS` on access, killing the process (standard Unix `mmap`
+///   semantics). Keep the file stable for the mapping's lifetime.
 pub fn load_gguf_mmap<P: AsRef<Path>>(path: P) -> Result<GgufLayoutMmap> {
     load_gguf_mmap_with_limits(path, ParseLimits::default())
 }
@@ -150,6 +163,10 @@ impl GgufLayoutMmap {
     }
 
     /// Return a borrowed slice of the raw tensor payload bytes.
+    ///
+    /// The slice borrows from the live mapping; concurrent writes to the
+    /// file are visible through it and truncation can raise `SIGBUS`
+    /// (see [`load_gguf_mmap`] "Concurrent modification").
     pub fn tensor_bytes<'a>(&'a self, tensor: &Tensor) -> Result<&'a [u8]> {
         tensor_payload_bytes(&self.mmap, &self.path, tensor)
     }

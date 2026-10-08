@@ -70,8 +70,11 @@ impl Checkpoint for SafetensorsBackend {
 /// [`Checkpoint`] over a memory-mapped
 /// [`crate::safetensors::SafetensorsCheckpointMmap`] (borrowed payloads).
 ///
-/// Callers must not truncate shard files while the backend is alive
-/// (standard mmap invariant).
+/// Callers must not modify shard files while the backend is alive:
+/// in-place writes are silently visible, truncation within a payload's
+/// last page yields zeros for the tail, and truncating so a reader
+/// accesses a page wholly past EOF raises `SIGBUS` (see "Concurrent
+/// modification" on [`crate::safetensors::open_safetensors_checkpoint_mmap`]).
 #[cfg(feature = "mmap")]
 #[derive(Debug)]
 pub struct SafetensorsMmapBackend {
