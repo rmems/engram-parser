@@ -14,6 +14,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     RUSTUP_HOME=/usr/local/rustup \
     PATH=/usr/local/cargo/bin:/usr/local/rustup/toolchains/${RUST_VERSION}-x86_64-unknown-linux-gnu/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
+# rustup also installs the MSRV toolchain (Cargo.toml rust-version 1.97.1) used by
+# ci.yml's msrv job, so `cargo +1.97.1 ...` reproduces it.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
@@ -21,7 +23,8 @@ RUN apt-get update \
         git \
         sudo \
     && rm -rf /var/lib/apt/lists/* \
-    && rustup component add rustfmt clippy llvm-tools-preview
+    && rustup component add rustfmt clippy llvm-tools-preview \
+    && rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
 
 RUN groupadd --gid 1000 ubuntu \
     && useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash ubuntu \
