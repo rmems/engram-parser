@@ -657,6 +657,16 @@ fn reject_duplicate_tensor_ownership(
 }
 
 pub(super) fn inspect_shard(path: &Path, root: &Path) -> Result<ShardInspection> {
+    // Check the path type before opening: `File::open` on a FIFO blocks
+    // until a writer appears. The fd-based `file.metadata()` below pins
+    // `file_len` to the inode actually opened, so a replaced path cannot
+    // silently change the length after this point.
+    if !fs::metadata(path).map_err(|e| io_error(path, e))?.is_file() {
+        return Err(model_load(
+            path,
+            "Safetensors shard is not a regular file".into(),
+        ));
+    }
     let mut file = File::open(path).map_err(|e| io_error(path, e))?;
     let file_len = file.metadata().map_err(|e| io_error(path, e))?.len();
     let mut len_bytes = [0u8; 8];
@@ -793,7 +803,16 @@ pub(super) fn parse_header(
 }
 
 pub(super) fn read_index(path: &Path) -> Result<RawIndex> {
-    let len = fs::metadata(path).map_err(|e| io_error(path, e))?.len();
+    // Same check-then-read window as the other guards: a non-regular file
+    // swapped in after `fs::metadata` can still reach `fs::read` below.
+    let metadata = fs::metadata(path).map_err(|e| io_error(path, e))?;
+    if !metadata.is_file() {
+        return Err(model_load(
+            path,
+            "Safetensors index is not a regular file".into(),
+        ));
+    }
+    let len = metadata.len();
     if len > MAX_INDEX_BYTES {
         return Err(model_load(
             path,

@@ -157,6 +157,17 @@ fn detect(path: &Path) -> Result<Detected> {
     if metadata.is_dir() {
         return Ok(Detected::Safetensors);
     }
+    // Reject FIFOs, devices, sockets, and other non-regular files before
+    // `File::open`: opening a FIFO blocks until a writer appears, and a
+    // character device can stream unbounded data. A non-regular file
+    // swapped in after this check can still reach `File::open` — the
+    // residual path->open race is inherent to path-based opens.
+    if !metadata.is_file() {
+        return Err(ParserError::UnsupportedFormat {
+            path: path.display().to_string(),
+            reason: "not a regular file".to_string(),
+        });
+    }
 
     let mut magic = [0u8; 4];
     let mut file = File::open(path).map_err(io_err)?;

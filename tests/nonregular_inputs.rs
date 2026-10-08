@@ -1,0 +1,163 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+//! Non-regular checkpoint inputs (FIFOs, sockets, devices) must fail with a
+//! clean error instead of blocking forever on `File::open` or streaming
+//! unbounded data. Unix-only: `mkfifo`, Unix sockets, and `/dev/null` are
+//! POSIX concepts.
+#![cfg(unix)]
+
+use std::fs;
+use std::os::unix::net::UnixListener;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use engram_parser::{ParserError, load_gguf, open_checkpoint};
+
+/// Drop-cleaned fixture dir (same convention as `checkpoint_api.rs`).
+struct TestDir(PathBuf);
+
+impl Drop for TestDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+fn tmpdir(tag: &str) -> TestDir {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let path = std::env::temp_dir().join(format!(
+        "engram-nonregular-{tag}-{}-{nanos}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&path).unwrap();
+    TestDir(path)
+}
+
+/// Requires coreutils `mkfifo` on PATH (present on every unix CI image we
+/// run on). Using the CLI keeps this test free of `unsafe`/FFI.
+fn mkfifo(path: &Path) {
+    let status = Command::new("mkfifo")
+        .arg(path)
+        .status()
+        .expect("spawn mkfifo (requires coreutils on PATH)");
+    assert!(status.success(), "mkfifo {path:?}");
+}
+
+fn assert_not_regular(err: ParserError) {
+    match err {
+        ParserError::UnsupportedFormat { reason, .. } => {
+            assert_eq!(reason, "not a regular file");
+        }
+        ParserError::InvalidLayout { reason, .. } => {
+            assert!(reason.contains("not a regular file"), "got: {reason}");
+        }
+        other => panic!("expected a not-a-regular-file error, got {other}"),
+    }
+}
+
+/// A FIFO would previously block `detect()` forever in `File::open`.
+#[test]
+fn open_checkpoint_fifo_gguf_errors_instead_of_hanging() {
+    let dir = tmpdir("fifo-gguf");
+    let fifo = dir.0.join("model.gguf");
+    mkfifo(&fifo);
+    assert_not_regular(open_checkpoint(&fifo).unwrap_err());
+}
+
+#[test]
+fn load_gguf_fifo_errors_instead_of_hanging() {
+    let dir = tmpdir("fifo-load");
+    let fifo = dir.0.join("model.gguf");
+    mkfifo(&fifo);
+    assert_not_regular(load_gguf(&fifo).unwrap_err());
+}
+
+#[cfg(feature = "mmap")]
+#[test]
+fn load_gguf_mmap_fifo_errors_instead_of_hanging() {
+    let dir = tmpdir("fifo-mmap");
+    let fifo = dir.0.join("model.gguf");
+    mkfifo(&fifo);
+    assert_not_regular(engram_parser::load_gguf_mmap(&fifo).unwrap_err());
+}
+
+#[test]
+fn open_checkpoint_fifo_safetensors_errors_instead_of_hanging() {
+    let dir = tmpdir("fifo-st");
+    let fifo = dir.0.join("model.safetensors");
+    mkfifo(&fifo);
+    // `open_checkpoint`'s detect gate rejects non-regular paths as
+    // UnsupportedFormat before the backend runs, regardless of the
+    // extension; without the `safetensors` feature the same gate fires
+    // first anyway. The shard-level check (InvalidLayout) is exercised
+    // through `open_safetensors_checkpoint` below.
+    let err = open_checkpoint(&fifo).unwrap_err();
+    match err {
+        ParserError::UnsupportedFormat { reason, .. } => {
+            assert_eq!(reason, "not a regular file");
+        }
+        other => panic!("unexpected error for FIFO safetensors input: {other}"),
+    }
+}
+
+#[cfg(feature = "safetensors")]
+#[test]
+fn open_safetensors_checkpoint_fifo_errors_instead_of_hanging() {
+    let dir = tmpdir("fifo-st-open");
+    let fifo = dir.0.join("model.safetensors");
+    mkfifo(&fifo);
+    assert_not_regular(engram_parser::safetensors::open_safetensors_checkpoint(&fifo).unwrap_err());
+}
+
+/// `open_checkpoint` rejects a socket path before trying to open it.
+#[test]
+fn open_checkpoint_socket_errors() {
+    // Socket paths are capped by `SUN_LEN` (104 bytes on macOS), which the
+    // `TestDir` naming scheme can exceed there, so the socket itself lives at
+    // a short path and is cleaned up explicitly.
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let sock = PathBuf::from(format!(
+        "/tmp/es{}-{}.gguf",
+        std::process::id(),
+        nanos % 1_000_000
+    ));
+    let _listener = UnixListener::bind(&sock).unwrap();
+    assert_not_regular(open_checkpoint(&sock).unwrap_err());
+    let _ = fs::remove_file(&sock);
+}
+
+/// Character devices can stream unbounded data; they must be rejected
+/// before `fs::read`.
+#[test]
+fn load_gguf_character_device_errors() {
+    assert_not_regular(load_gguf("/dev/null").unwrap_err());
+    assert_not_regular(load_gguf("/dev/zero").unwrap_err());
+}
+
+/// Missing files still surface as `Io` errors, not the new variant.
+#[test]
+fn missing_file_is_still_io_error() {
+    let dir = tmpdir("missing");
+    let err = open_checkpoint(dir.0.join("nope.gguf")).unwrap_err();
+    assert!(matches!(err, ParserError::Io { .. }), "got: {err}");
+}
+
+/// A regular file must not hit the new guard (it fails later, at parse).
+#[test]
+fn regular_file_reaches_the_parser() {
+    let dir = tmpdir("regular");
+    let path = dir.0.join("model.gguf");
+    fs::write(&path, b"not a gguf file").unwrap();
+    let err = load_gguf(&path).unwrap_err();
+    match err {
+        ParserError::UnsupportedFormat { reason, .. } => {
+            assert_ne!(reason, "not a regular file");
+        }
+        other => panic!("expected a parse error, got {other}"),
+    }
+}
