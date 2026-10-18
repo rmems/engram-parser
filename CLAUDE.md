@@ -46,7 +46,7 @@ commit generated files. Run fmt and clippy before committing.
 - Safetensors stays behind the off-by-default `safetensors` feature; `mmap` likewise.
 - Parsing must stay bounded by `ParseLimits` and return typed errors, never hang on FIFOs, sockets, or devices (tests cover this).
 - GGUF wire `ggml_type` 31 is `Q4_0_4_4`, not IQ3_M (`REVIEW.md`).
-- `Cargo.toml` `include` is an allowlist (manifest, README, changelog, licenses, `src/**`, `examples/**`). `AGENTS.md` is not listed, so `CLAUDE.md` is not either; no manifest change was needed.
+- `Cargo.toml` `include` is an allowlist (manifest, `Cargo.lock`, README, changelog, licenses, `src/**`, `examples/**`). `AGENTS.md` is not listed, so `CLAUDE.md` is not either; no manifest change was needed.
 - Every `.rs` file starts with `// SPDX-License-Identifier: MIT OR Apache-2.0` (all current files do). Keep it on new files.
 
 ## Gotchas
