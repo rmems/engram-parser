@@ -23,7 +23,7 @@ Run from the repo root. "Verified" means it ran successfully in a fresh checkout
 | `cargo llvm-cov --all-targets --all-features --locked --lcov --output-path lcov.info` | verified (needs `cargo install cargo-llvm-cov --locked`; `lcov.info` is gitignored) |
 | `ENGRAM_GGUF=/path/to/model.gguf cargo test --test real_gguf -- --ignored --nocapture` | not run (needs multi-GB local GGUF weights) |
 | `qlty check --all --no-formatters --summary` | not run (CI-only Qlty CLI; Codecov upload also needs a secret) |
-| `cargo package --locked`, `cargo publish --dry-run --locked` | not run (release gate in `RELEASE.md`; do not run) |
+| `cargo package --locked`, `cargo publish --dry-run --locked` | not run here (release gate in `RELEASE.md`; the maintainer runs it at release time, not an agent session) |
 
 CI runs the test matrix on Linux, Windows, and macOS and then fails if the working tree is dirty, so do not
 commit generated files. Run fmt and clippy before committing.
@@ -51,7 +51,7 @@ commit generated files. Run fmt and clippy before committing.
 
 ## Gotchas
 
-- Never run `cargo publish` or create release tags by hand (`RELEASE.md`).
+- Never run `cargo publish` or create release tags from an agent session; releases follow `RELEASE.md` and are done by the maintainer.
 - The MSRV toolchain needs its own components: `rustup component add --toolchain 1.97.1 rustfmt clippy`.
 - `.claude/` is gitignored, so keep shared agent guidance in this file or `AGENTS.md`.
 - Edit only what the task needs.
