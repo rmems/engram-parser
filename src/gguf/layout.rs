@@ -443,6 +443,9 @@ fn tensor_byte_len(
 /// `absolute_offset` is still range-checked against `total_len`, but they are
 /// excluded from the overlap comparison because an empty range cannot overlap.
 ///
+/// Each tensor's `relative_offset` must also be a multiple of
+/// `general.alignment` (GGUF spec; llama.cpp rejects violations).
+///
 /// This is the semantic directory contract (duplicate names are rejected
 /// earlier in [`read_tensor_directory`]). The RM-1358 offset-wrap guard
 /// (`tensor_data_offset + relative_offset` via `checked_add`) is a separate,
@@ -464,6 +467,19 @@ fn finalize_tensor_offsets(
                     format!("tensor '{}' absolute offset overflow", tensor.name),
                 )
             })?;
+        // GGUF spec / llama.cpp: every tensor offset is a multiple of
+        // `general.alignment`. Checked after the overflow guard so a wrapped
+        // offset still reports overflow, and before the bounds/overlap checks.
+        if !tensor.relative_offset.is_multiple_of(alignment) {
+            return Err(invalid_layout(
+                path,
+                format!(
+                    "tensor '{}' has relative_offset {}, which is not a multiple of \
+                     general.alignment {alignment}",
+                    tensor.name, tensor.relative_offset
+                ),
+            ));
+        }
         let end = tensor
             .absolute_offset
             .checked_add(tensor.byte_len)
