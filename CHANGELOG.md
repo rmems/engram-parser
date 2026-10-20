@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- **GGUF tensor offset alignment ([RM-2204](https://linear.app/rpd-34/issue/RM-2204) / #120):**
+  `finalize_tensor_offsets` now rejects any tensor whose `relative_offset` is
+  not a multiple of `general.alignment` (default 32) with `InvalidLayout`
+  naming the tensor, offset, and alignment, matching the GGUF spec and
+  llama.cpp. Files with unaligned tensor offsets that previously parsed now
+  fail at parse time. The check runs after the offset-overflow guard and before
+  the bounds and overlap checks.
+
 ## [0.3.0] - 2026-10-02
 
 **First public crates.io publication.** Version

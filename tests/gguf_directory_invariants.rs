@@ -82,13 +82,15 @@ fn duplicate_tensor_names_fail_closed() {
 
 #[test]
 fn overlapping_payloads_fail_closed() {
-    // Two F32 dims [2] tensors (8 bytes each) at relative offsets 0 and 4:
-    // ranges [0,8) and [4,12) intersect. 16 payload bytes are provided so the
-    // failure is specifically overlap, NOT past-EOF.
+    // An F32 dims [16] tensor (64 bytes, range [0,64)) and an F32 dims [2]
+    // tensor (8 bytes) at relative offset 32 (range [32,40)). Both offsets are
+    // multiples of the default alignment 32, so the failure is specifically
+    // overlap, NOT misalignment. 64 payload bytes are provided so it is also
+    // NOT past-EOF.
     let entries = [
         DirEntry {
             name: "a",
-            dims: vec![2],
+            dims: vec![16],
             ggml_type: GGML_F32,
             relative_offset: 0,
         },
@@ -96,10 +98,10 @@ fn overlapping_payloads_fail_closed() {
             name: "b",
             dims: vec![2],
             ggml_type: GGML_F32,
-            relative_offset: 4,
+            relative_offset: 32,
         },
     ];
-    let reason = parse_invalid_reason(build_dir_gguf(&entries, 16), "overlap");
+    let reason = parse_invalid_reason(build_dir_gguf(&entries, 64), "overlap");
     assert_all(&[
         (reason.contains("overlap"), "overlap-word"),
         (reason.contains('a'), "names-a"),
@@ -222,6 +224,130 @@ fn zero_length_tensor_is_not_overlap() {
             "empty-payload-empty",
         ),
     ]);
+}
+
+/// Like `build_dir_gguf`, but declares an explicit `general.alignment` KV and
+/// pads the header/directory to that alignment before the payload.
+fn build_dir_gguf_aligned(entries: &[DirEntry], alignment: u32, payload_len: usize) -> Vec<u8> {
+    let mut out = gguf_header(entries.len() as u64, 1);
+    push_kv_u32(&mut out, "general.alignment", alignment);
+    for entry in entries {
+        push_string(&mut out, entry.name);
+        push_u32(&mut out, entry.dims.len() as u32);
+        for &d in &entry.dims {
+            push_u64(&mut out, d as u64);
+        }
+        push_u32(&mut out, entry.ggml_type);
+        push_u64(&mut out, entry.relative_offset);
+    }
+    while !out.len().is_multiple_of(alignment as usize) {
+        out.push(0);
+    }
+    out.resize(out.len() + payload_len, 0);
+    out
+}
+
+/// One 8-byte F32 dims [2] tensor at `relative_offset`, with enough payload to
+/// cover it (so any rejection is alignment, never past-EOF).
+fn one_tensor_at(relative_offset: u64) -> [DirEntry; 1] {
+    [DirEntry {
+        name: "misaligned.weight",
+        dims: vec![2],
+        ggml_type: GGML_F32,
+        relative_offset,
+    }]
+}
+
+fn assert_misaligned(reason: &str, offset: u64, alignment: u32) {
+    assert_all(&[
+        (reason.contains("misaligned.weight"), "names-tensor"),
+        (reason.contains(&offset.to_string()), "names-offset"),
+        (
+            reason.contains(&format!("general.alignment {alignment}")),
+            "names-alignment",
+        ),
+        (reason.contains("multiple"), "says-multiple"),
+    ]);
+}
+
+#[test]
+fn misaligned_offset_at_default_alignment_fails_closed() {
+    // No `general.alignment` KV, so the default 32 applies. Relative offset 16
+    // is in-bounds and non-overlapping but not a multiple of 32; llama.cpp's
+    // HANDCRAFTED_TENSORS_BAD_ALIGN case rejects the same shape.
+    let offset = 16;
+    let bytes = build_dir_gguf(&one_tensor_at(offset), offset as usize + 8);
+    let reason = parse_invalid_reason(bytes, "misaligned-default");
+    assert_misaligned(&reason, offset, 32);
+}
+
+#[test]
+fn misaligned_offset_at_default_alignment_by_one_byte_fails_closed() {
+    let offset = 33;
+    let bytes = build_dir_gguf(&one_tensor_at(offset), offset as usize + 8);
+    let reason = parse_invalid_reason(bytes, "misaligned-plus-one");
+    assert_misaligned(&reason, offset, 32);
+}
+
+#[test]
+fn misaligned_offset_at_custom_alignment_64_fails_closed() {
+    // Offset 32 is aligned at the default 32 but NOT at the declared 64, so
+    // the declared `general.alignment` (not the default) must drive the check.
+    let offset = 32;
+    let bytes = build_dir_gguf_aligned(&one_tensor_at(offset), 64, offset as usize + 8);
+    let reason = parse_invalid_reason(bytes, "misaligned-64");
+    assert_misaligned(&reason, offset, 64);
+}
+
+#[test]
+fn offset_aligned_at_64_parses_but_fails_at_other_alignments() {
+    // 192 = 3 * 64: a multiple of 64 and 32, but not of 128.
+    let offset = 192;
+    let entries = one_tensor_at(offset);
+    let payload_len = offset as usize + 8;
+
+    let layout = parse_bytes(
+        build_dir_gguf_aligned(&entries, 64, payload_len),
+        "mem://aligned-64".into(),
+    )
+    .expect("offset aligned at general.alignment 64 must parse");
+    let tensor = layout.tensor("misaligned.weight").expect("tensor");
+    assert_all(&[
+        (layout.alignment == 64, "alignment-64"),
+        (
+            layout.tensor_data_offset.is_multiple_of(64),
+            "data-region-aligned",
+        ),
+        (tensor.relative_offset == 192, "relative-offset"),
+        (
+            tensor.absolute_offset == layout.tensor_data_offset + 192,
+            "absolute-offset",
+        ),
+        (
+            layout.tensor_bytes(tensor).expect("payload").len() == 8,
+            "payload-len",
+        ),
+    ]);
+
+    // The identical directory under general.alignment 128 is misaligned.
+    let reason = parse_invalid_reason(
+        build_dir_gguf_aligned(&entries, 128, payload_len),
+        "misaligned-128",
+    );
+    assert_misaligned(&reason, offset, 128);
+}
+
+#[test]
+fn offset_aligned_at_16_parses_but_fails_at_default_32() {
+    // Offset 16 is valid under a declared alignment of 16 and invalid under
+    // the default 32 (see the default-alignment rejection test above).
+    let offset = 16;
+    let layout = parse_bytes(
+        build_dir_gguf_aligned(&one_tensor_at(offset), 16, offset as usize + 8),
+        "mem://aligned-16".into(),
+    )
+    .expect("offset aligned at general.alignment 16 must parse");
+    assert_eq!(layout.alignment, 16);
 }
 
 #[cfg(feature = "mmap")]
