@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Coverage CI ([RM-1951](https://linear.app/rpd-34/issue/RM-1951)):** the
+  Coverage job skips the Codecov upload when `CODECOV_TOKEN` is unset and
+  keeps the LCOV artifact. `cargo llvm-cov` still runs and still fails the
+  job when tests fail. An upload that has the token still fails the job on
+  uploader errors.
+
 ### Fixed
 
 - **GGUF tensor offset alignment ([RM-2204](https://linear.app/rpd-34/issue/RM-2204) / #120):**
