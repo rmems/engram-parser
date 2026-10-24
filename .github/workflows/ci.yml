@@ -108,16 +108,14 @@ jobs:
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
           EVENT_NAME: ${{ github.event_name }}
-          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
-          BASE_REPO: ${{ github.repository }}
         run: |
           if [ -n "$CODECOV_TOKEN" ]; then
             echo 'available=true' >> "$GITHUB_OUTPUT"
-          elif [ "$EVENT_NAME" = pull_request ] && [ "$HEAD_REPO" != "$BASE_REPO" ]; then
-            echo 'Codecov upload skipped for fork PR without a token; LCOV artifact is retained.' >> "$GITHUB_STEP_SUMMARY"
-            echo '::warning::Codecov upload skipped for fork PR without a token'
+          elif [ "$EVENT_NAME" = pull_request ]; then
+            echo 'Codecov upload skipped because CODECOV_TOKEN is unavailable to this PR. The LCOV artifact is retained.' >> "$GITHUB_STEP_SUMMARY"
+            echo '::warning::Codecov upload skipped because CODECOV_TOKEN is unavailable to this PR'
           else
-            echo '::error::CODECOV_TOKEN is missing; LCOV artifact is retained but upload cannot run'
+            echo '::error::CODECOV_TOKEN is missing on a main/scheduled run; LCOV artifact is retained but upload cannot run'
             exit 1
           fi
       - name: Upload to Codecov
