@@ -22,9 +22,11 @@ hosted values must be verified against the PR and default branch separately.
 
 Codecov is the only coverage-reporting service. The job uploads the LCOV file
 as a downloadable GitHub Actions artifact before attempting Codecov upload.
-When `CODECOV_TOKEN` is unset (fork PRs, Dependabot PRs, and any other run
-without that secret), the upload step is skipped, a warning is recorded, and
-the LCOV artifact is retained. Coverage generation still runs in that case and
+When `CODECOV_TOKEN` is unset on a pull request (fork PRs and Dependabot
+PRs), the upload step is skipped, a warning is recorded, and the LCOV
+artifact is retained. A `push` or `schedule` run without that secret fails
+the job, so a rotated or deleted token cannot leave `main` green with a
+stale Codecov baseline. Coverage generation still runs in every case and
 still fails the job when `cargo llvm-cov` tests fail. When the token is
 present, an uploader error fails the job (`fail_ci_if_error: true`). The
 coverage job checks out the exact PR head (or push SHA) and passes that SHA
