@@ -6,6 +6,12 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- **BF16→F32 decode ([RM-2366](https://linear.app/rpd-34/issue/RM-2366) / #126):**
+  `Tensor::dequantize_bf16`, `bf16_bits_to_f32`, `dequantize_bf16_bytes`
+  (Safetensors `BF16` payloads; rejects odd lengths), and
+  `dequantize_packed(DType::BF16, …)`. Lossless bit widening; NaN payloads,
+  signed zeros, infinities, and subnormals are preserved. Path-gated
+  real-checkpoint smoke test in `tests/bf16_decode.rs`.
 - **Transformer topology discovery ([RM-1785](https://linear.app/rpd-34/issue/RM-1785) / #88):**
   new `analysis::transformer` module (default features, zero dependencies).
   `discover_topology(&dyn Checkpoint)` / `discover_topology_from_parts`

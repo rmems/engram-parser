@@ -162,7 +162,7 @@ With `--features safetensors,mmap`, `open_safetensors_checkpoint_mmap` returns b
 - Extracts the raw byte buffers for one expert's `gate`, `up`, and `down` projections.
 - Supports stacked (`blk.{B}.ffn_{role}_exps.weight`) and per-expert (`blk.{B}.ffn_{role}.{E}.weight`) conventions.
 - Models packed GGUF dtype sizes without pulling in a numerical runtime.
-- Packed dequant to `f32` for **Q8_0**, **Q5_K**, **Q6_K**, and the internal **IQ3_M block** layout (`GGML_TYPE_IQ3_M_BLOCK = 0x4949334D`). Existing `dequantize_f16` is unchanged.
+- Packed dequant to `f32` for **Q8_0**, **Q5_K**, **Q6_K**, and the internal **IQ3_M block** layout (`GGML_TYPE_IQ3_M_BLOCK = 0x4949334D`). Lossless **BF16→F32** widening via `Tensor::dequantize_bf16`, `dequantize_bf16_bytes` (also for Safetensors `BF16` payloads), and `dequantize_packed(DType::BF16, …)`. Existing `dequantize_f16` is unchanged.
 - Optional **`mmap` feature** (`memmap2`): `load_gguf_mmap` maps the file instead of `fs::read` into a `Vec<u8>`. Default builds still read the whole file; no dependencies are enabled by default.
 
 ### Shipped behind feature — Safetensors
@@ -223,7 +223,7 @@ Layout-aware parsing (**packed byte sizes**; plus the K-quant dequant helpers be
 
 Remaining codes use `DType::Other(u32)`. Unknown packed layouts fail closed when element count cannot be converted to a modeled byte length.
 
-Numeric helpers: `dequantize_f16`, `dequantize_q8_0`, `dequantize_q5_k`, `dequantize_q6_k`, `dequantize_iq3_m`. The parser's primary contract is still layout/raw bytes; these unpackers are optional CPU helpers, not a GGML compute path.
+Numeric helpers: `dequantize_f16`, `dequantize_bf16`, `dequantize_bf16_bytes`, `dequantize_q8_0`, `dequantize_q5_k`, `dequantize_q6_k`, `dequantize_iq3_m`. The parser's primary contract is still layout/raw bytes; these unpackers are optional CPU helpers, not a GGML compute path.
 
 ### GGUF wire types vs "GGML"
 
@@ -238,7 +238,7 @@ Current GGUF surface includes:
 - `load_gguf`, `parse_bytes` (and `*_with_limits` for an explicit `ParseLimits` policy);
 - `#[cfg(feature = "mmap")] load_gguf_mmap` / `load_gguf_mmap_with_limits` → `GgufLayoutMmap` (page-aligned tensor slices via `tensor_page_aligned_bytes`);
 - `GgufLayout`, `GgufMetadata`, `Tensor`, `DType`, `ParseLimits`;
-- `dequantize_f16` (on `Tensor`), `dequantize_q8_0`, `dequantize_q5_k`, `dequantize_q6_k`, `dequantize_iq3_m`;
+- `dequantize_f16` / `dequantize_bf16` (on `Tensor`), `dequantize_bf16_bytes`, `dequantize_q8_0`, `dequantize_q5_k`, `dequantize_q6_k`, `dequantize_iq3_m`;
 - `extract_expert`, `list_experts` (canonical: `engram_parser::analysis::moe`);
 - `MoeExpertWeights`, `RawTensor` (also at `engram_parser::analysis::moe`);
 - `analysis::transformer::{discover_topology, discover_topology_from_parts, classify_tensor}` with `TransformerTopology`, `LayerTopology`, `TopologySummary`, `RoleAssignment`, `TensorRole`, `RoleScope`, `ParamKind`, `RoleConfidence`, `AttentionKind`, `FeedForwardKind`, `ClassifyContext` (format-independent, default features);

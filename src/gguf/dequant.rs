@@ -11,7 +11,8 @@
 //! [`super::tensor::GGML_TYPE_IQ3_M_BLOCK`].
 
 use super::tensor::{
-    DType, GGML_TYPE_IQ3_M_BLOCK, GGML_TYPE_Q5_K, GGML_TYPE_Q6_K, GGML_TYPE_Q8_0, f16_bits_to_f32,
+    DType, GGML_TYPE_IQ3_M_BLOCK, GGML_TYPE_Q5_K, GGML_TYPE_Q6_K, GGML_TYPE_Q8_0,
+    dequantize_bf16_bytes, f16_bits_to_f32,
 };
 use crate::error::{ParserError, Result};
 
@@ -97,8 +98,24 @@ pub fn dequantize_packed(dtype: DType, packed: &[u8], dims: &[usize]) -> Result<
         DType::Q5_K => dequantize_q5_k(packed, dims),
         DType::Q6_K => dequantize_q6_k(packed, dims),
         DType::IQ3_M_BLOCK => dequantize_iq3_m(packed, dims),
+        DType::BF16 => dequantize_bf16_dims(packed, dims),
         other => Err(fail_closed_dequant(other)),
     }
+}
+
+fn dequantize_bf16_dims(packed: &[u8], dims: &[usize]) -> Result<Vec<f32>> {
+    let (width, n_rows) = width_and_rows(dims)?;
+    let n = width
+        .checked_mul(n_rows)
+        .and_then(|n| n.checked_mul(2))
+        .ok_or_else(|| invalid("BF16 element count overflow"))?;
+    if packed.len() != n {
+        return Err(invalid(format!(
+            "BF16 length mismatch: expected {n} bytes for dims {dims:?}, got {}",
+            packed.len()
+        )));
+    }
+    dequantize_bf16_bytes(packed)
 }
 
 fn fail_closed_dequant(dtype: DType) -> ParserError {
@@ -107,7 +124,7 @@ fn fail_closed_dequant(dtype: DType) -> ParserError {
     // compile. The `never` binding documents the fail-closed default.
     let unknown: DType = dtype;
     match unknown {
-        DType::Q8_0 | DType::Q5_K | DType::Q6_K | DType::IQ3_M_BLOCK => {
+        DType::Q8_0 | DType::Q5_K | DType::Q6_K | DType::IQ3_M_BLOCK | DType::BF16 => {
             unreachable!("handled by dequantize_packed")
         }
         DType::F32
@@ -130,7 +147,6 @@ fn fail_closed_dequant(dtype: DType) -> ParserError {
         | DType::IQ2_S
         | DType::IQ4_XS
         | DType::IQ1_M
-        | DType::BF16
         | DType::F64
         | DType::I8
         | DType::I16
@@ -578,5 +594,20 @@ mod tests {
         block[0..2].copy_from_slice(&f16_one());
         let out = dequantize_packed(DType::Q8_0, &block, &[32]).unwrap();
         assert_eq!(out.len(), 32);
+    }
+
+    #[test]
+    fn dequantize_packed_dispatches_bf16() {
+        let bytes = [0x80, 0x3F, 0x00, 0xC0];
+        assert_eq!(
+            dequantize_packed(DType::BF16, &bytes, &[2]).unwrap(),
+            vec![1.0, -2.0]
+        );
+        assert_eq!(
+            dequantize_packed(DType::BF16, &bytes, &[1, 2]).unwrap(),
+            vec![1.0, -2.0]
+        );
+        assert!(dequantize_packed(DType::BF16, &bytes, &[3]).is_err());
+        assert!(dequantize_packed(DType::BF16, &bytes[..3], &[2]).is_err());
     }
 }
