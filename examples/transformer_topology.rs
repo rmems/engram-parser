@@ -65,9 +65,10 @@ fn print_summary(topo: &TransformerTopology) {
         topo.architecture_hint.as_deref().unwrap_or("(none)")
     );
     println!(
-        "layers: {} discovered, {} missing; moe: {}; hidden={:?} vocab={:?} tied={}",
+        "layers: {} discovered, {}{} missing; moe: {}; hidden={:?} vocab={:?} tied={}",
         s.layer_count,
         s.missing_layers.len(),
+        if s.missing_layers_truncated { "+" } else { "" },
         s.is_moe,
         s.hidden_size_hint,
         s.vocab_size_hint,
@@ -81,10 +82,16 @@ fn print_summary(topo: &TransformerTopology) {
     for (c, n) in &s.confidence_counts {
         println!("  {c:<22} {n:>6}");
     }
+    let multi_stack = s.layer_stacks.len() > 1;
     for layer in &topo.layers {
+        let label = if multi_stack {
+            format!("{}.{}", layer.stack, layer.index)
+        } else {
+            layer.index.to_string()
+        };
         print!(
-            "layer {:>3}: attention={:<10} feed_forward={:<13}",
-            layer.index, layer.attention, layer.feed_forward
+            "layer {label:>3}: attention={:<10} feed_forward={:<13}",
+            layer.attention, layer.feed_forward
         );
         if let Some(n) = layer.expert_count {
             print!(" experts={n}");
