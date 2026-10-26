@@ -21,9 +21,16 @@ All notable changes to this project are documented in this file.
   shared-expert flags) plus a `TopologySummary` (role and confidence
   counts, missing layers, hidden/vocab/tied-embedding hints). MoE roles
   reuse the dense MLP roles under an expert scope, so dense and MoE
-  checkpoints share one topology layer. Covers llama.cpp GGUF, Hugging
+  checkpoints share one topology layer. Covers llama.cpp GGUF (stacked
+  `*_exps` and per-expert `ffn_<role>.<E>` / `ffn_<role>_<E>`), Hugging
   Face Llama / Mixtral / Qwen-MoE / Gemma-2, GPT-2, GPT-NeoX, original
-  Llama, and BERT naming. Output is order-independent and deterministic;
+  Llama, and BERT naming. Layers are grouped by `(stack, index)` so
+  multi-tower checkpoints (`visual.blocks.N` next to `model.layers.N`)
+  are never merged; `TopologySummary::primary_stack` / `layer_stacks`
+  expose the split. `missing_layers` uses saturating arithmetic and is
+  capped at `MAX_MISSING_LAYERS` (4096) with a `missing_layers_truncated`
+  flag, so hostile layer indices or `block_count` values cannot force
+  large allocations. Output is order-independent and deterministic;
   `Display` gives a text inventory and `to_json()` a dependency-free JSON
   rendering. Unknown tensors stay `Unknown`; a bare `mlp.gate` stays
   `Ambiguous` unless the checkpoint holds expert tensors or the shape is

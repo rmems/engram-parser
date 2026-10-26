@@ -47,11 +47,18 @@
 //! # Ok::<(), engram_parser::ParserError>(())
 //! ```
 //!
-//! # Determinism
+//! # Determinism and bounds
 //!
 //! Output depends only on the set of `(name, shape, dtype)` tuples and
 //! the metadata; input order does not matter. `Display` and
 //! [`TransformerTopology::to_json`] are stable across runs.
+//!
+//! Layers are grouped by `(stack, index)`, where the stack is the name
+//! prefix up to the layer marker (`blk`, `model.layers`, `visual.blocks`),
+//! so multi-tower checkpoints never merge unrelated layers. Work and
+//! memory are bounded by the inventory size plus [`MAX_MISSING_LAYERS`];
+//! layer indices and declared counts from untrusted input never size an
+//! allocation.
 
 mod role;
 mod topology;
@@ -61,7 +68,8 @@ pub use role::{
     classify_tensor,
 };
 pub use topology::{
-    AttentionKind, FeedForwardKind, LayerTopology, TopologySummary, TransformerTopology,
+    AttentionKind, FeedForwardKind, LayerTopology, MAX_MISSING_LAYERS, TopologySummary,
+    TransformerTopology,
 };
 
 use crate::checkpoint::{Checkpoint, CheckpointMetadata, TensorInfo};

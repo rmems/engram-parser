@@ -5,6 +5,10 @@
 //! runs over the same inventory produce identical structures, identical
 //! [`fmt::Display`] text, and identical [`TransformerTopology::to_json`]
 //! strings regardless of input order.
+//!
+//! Work is bounded by the inventory size plus [`MAX_MISSING_LAYERS`]:
+//! layer indices and declared layer counts come from untrusted names and
+//! metadata and are never used to size an allocation directly.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Write as _};
@@ -12,9 +16,15 @@ use std::fmt::{self, Write as _};
 use crate::checkpoint::{CheckpointMetadata, TensorInfo};
 
 use super::role::{
-    ClassifyContext, RoleAssignment, RoleConfidence, RoleScope, TensorRole, classify_tensor,
-    names_expert_tensor,
+    ClassifyContext, ParamKind, RoleAssignment, RoleConfidence, RoleScope, TensorRole,
+    classify_tensor, name_facts,
 };
+
+/// Upper bound on the indices listed in [`TopologySummary::missing_layers`].
+///
+/// A crafted name such as `blk.4000000000.attn_q.weight` or a huge
+/// `<arch>.block_count` must not turn into billions of entries.
+pub const MAX_MISSING_LAYERS: usize = 4096;
 
 /// How a layer's attention projections are stored.
 #[non_exhaustive]
@@ -45,7 +55,7 @@ impl AttentionKind {
 
 impl fmt::Display for AttentionKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
+        f.pad(self.as_str())
     }
 }
 
@@ -83,14 +93,18 @@ impl FeedForwardKind {
 
 impl fmt::Display for FeedForwardKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
+        f.pad(self.as_str())
     }
 }
 
 /// One Transformer layer as seen through tensor names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LayerTopology {
-    /// Layer index parsed from tensor names.
+    /// Layer stack this layer belongs to: the lowercased name prefix up to
+    /// and including the layer marker (`"blk"`, `"model.layers"`,
+    /// `"visual.blocks"`). Multi-tower checkpoints yield several stacks.
+    pub stack: String,
+    /// Layer index parsed from tensor names, unique within `stack`.
     pub index: usize,
     /// Attention storage pattern.
     pub attention: AttentionKind,
@@ -135,11 +149,21 @@ impl LayerTopology {
 pub struct TopologySummary {
     /// Number of tensors inspected.
     pub tensor_count: usize,
-    /// Number of layers discovered from names.
+    /// Number of layers discovered in the primary stack.
     pub layer_count: usize,
-    /// Layer indices that are below the highest discovered (or declared)
-    /// index but have no tensors.
+    /// Layer count per stack, sorted by stack name. One entry for a
+    /// single-tower checkpoint.
+    pub layer_stacks: BTreeMap<String, usize>,
+    /// The stack with the most layers (ties: lexicographically first).
+    /// [`TransformerTopology::layer`], `layer_count`, and `missing_layers`
+    /// refer to it. `None` when no layer was found.
+    pub primary_stack: Option<String>,
+    /// Indices in the primary stack that are below the highest discovered
+    /// (or declared) index but have no tensors. Capped at
+    /// [`MAX_MISSING_LAYERS`] entries; `missing_layers_truncated` says so.
     pub missing_layers: Vec<usize>,
+    /// `true` when `missing_layers` hit the cap and omits further indices.
+    pub missing_layers_truncated: bool,
     /// `true` when any layer is [`FeedForwardKind::Moe`].
     pub is_moe: bool,
     /// Hidden size read from the token-embedding shape, when rank 2.
@@ -175,7 +199,7 @@ pub struct TransformerTopology {
     pub declared_expert_count: Option<usize>,
     /// Tensors with no layer index, sorted by name.
     pub global: Vec<RoleAssignment>,
-    /// Discovered layers, sorted by index.
+    /// Discovered layers, sorted by `(stack, index)`.
     pub layers: Vec<LayerTopology>,
     /// Counts and hints.
     pub summary: TopologySummary,
@@ -201,12 +225,26 @@ impl TransformerTopology {
             .find(|t| t.name == name)
     }
 
-    /// Look up a layer by index.
+    /// Look up a layer by index in the primary stack.
     pub fn layer(&self, index: usize) -> Option<&LayerTopology> {
+        let stack = self.summary.primary_stack.as_deref()?;
+        self.layer_in(stack, index)
+    }
+
+    /// Look up a layer by stack and index.
+    pub fn layer_in(&self, stack: &str, index: usize) -> Option<&LayerTopology> {
         self.layers
-            .binary_search_by_key(&index, |l| l.index)
+            .binary_search_by(|l| (l.stack.as_str(), l.index).cmp(&(stack, index)))
             .ok()
             .map(|i| &self.layers[i])
+    }
+
+    /// Layers of the primary stack, in index order.
+    pub fn primary_layers(&self) -> impl Iterator<Item = &LayerTopology> {
+        let stack = self.summary.primary_stack.as_deref();
+        self.layers
+            .iter()
+            .filter(move |l| Some(l.stack.as_str()) == stack)
     }
 
     /// Deterministic JSON rendering (no external dependency; keys are
@@ -223,14 +261,45 @@ impl TransformerTopology {
         w.opt_usize(self.declared_expert_count);
 
         w.key("summary");
-        w.begin_object();
+        self.write_summary_json(&mut w);
+
+        w.key("global");
+        w.begin_array();
+        for t in &self.global {
+            write_assignment(&mut w, t);
+        }
+        w.end_array();
+
+        w.key("layers");
+        w.begin_array();
+        for layer in &self.layers {
+            write_layer(&mut w, layer);
+        }
+        w.end_array();
+        w.end_object();
+        out
+    }
+
+    fn write_summary_json(&self, w: &mut JsonWriter<'_>) {
         let s = &self.summary;
+        w.begin_object();
         w.key("tensor_count");
         w.usize(s.tensor_count);
         w.key("layer_count");
         w.usize(s.layer_count);
+        w.key("primary_stack");
+        w.opt_string(s.primary_stack.as_deref());
+        w.key("layer_stacks");
+        w.begin_object();
+        for (stack, n) in &s.layer_stacks {
+            w.key(stack);
+            w.usize(*n);
+        }
+        w.end_object();
         w.key("missing_layers");
         w.usize_array(&s.missing_layers);
+        w.key("missing_layers_truncated");
+        w.bool(s.missing_layers_truncated);
         w.key("is_moe");
         w.bool(s.is_moe);
         w.key("hidden_size_hint");
@@ -258,44 +327,34 @@ impl TransformerTopology {
         w.key("unknown_tensors");
         w.string_array(s.unknown_tensors.iter().map(String::as_str));
         w.end_object();
-
-        w.key("global");
-        w.begin_array();
-        for t in &self.global {
-            write_assignment(&mut w, t);
-        }
-        w.end_array();
-
-        w.key("layers");
-        w.begin_array();
-        for layer in &self.layers {
-            w.begin_object();
-            w.key("index");
-            w.usize(layer.index);
-            w.key("attention");
-            w.string(layer.attention.as_str());
-            w.key("feed_forward");
-            w.string(layer.feed_forward.as_str());
-            w.key("has_router");
-            w.bool(layer.has_router);
-            w.key("expert_count");
-            w.opt_usize(layer.expert_count);
-            w.key("has_shared_expert");
-            w.bool(layer.has_shared_expert);
-            w.key("has_dense_mlp");
-            w.bool(layer.has_dense_mlp);
-            w.key("tensors");
-            w.begin_array();
-            for t in &layer.tensors {
-                write_assignment(&mut w, t);
-            }
-            w.end_array();
-            w.end_object();
-        }
-        w.end_array();
-        w.end_object();
-        out
     }
+}
+
+fn write_layer(w: &mut JsonWriter<'_>, layer: &LayerTopology) {
+    w.begin_object();
+    w.key("stack");
+    w.string(&layer.stack);
+    w.key("index");
+    w.usize(layer.index);
+    w.key("attention");
+    w.string(layer.attention.as_str());
+    w.key("feed_forward");
+    w.string(layer.feed_forward.as_str());
+    w.key("has_router");
+    w.bool(layer.has_router);
+    w.key("expert_count");
+    w.opt_usize(layer.expert_count);
+    w.key("has_shared_expert");
+    w.bool(layer.has_shared_expert);
+    w.key("has_dense_mlp");
+    w.bool(layer.has_dense_mlp);
+    w.key("tensors");
+    w.begin_array();
+    for t in &layer.tensors {
+        write_assignment(w, t);
+    }
+    w.end_array();
+    w.end_object();
 }
 
 fn write_assignment(w: &mut JsonWriter<'_>, t: &RoleAssignment) {
@@ -312,6 +371,8 @@ fn write_assignment(w: &mut JsonWriter<'_>, t: &RoleAssignment) {
     w.string(t.confidence.as_str());
     w.key("alternatives");
     w.string_array(t.alternatives.iter().map(|r| r.as_str()));
+    w.key("stack");
+    w.opt_string(t.stack.as_deref());
     w.key("layer");
     w.opt_usize(t.layer);
     w.key("dims");
@@ -333,13 +394,31 @@ impl fmt::Display for TransformerTopology {
         )?;
         writeln!(
             f,
-            "layers:       {} discovered{}{}",
+            "layers:       {} discovered{}{}{}",
             s.layer_count,
             opt_suffix(", declared ", self.declared_layer_count),
             if s.missing_layers.is_empty() {
                 String::new()
             } else {
-                format!(", missing {:?}", s.missing_layers)
+                format!(
+                    ", missing {:?}{}",
+                    s.missing_layers,
+                    if s.missing_layers_truncated {
+                        "…"
+                    } else {
+                        ""
+                    }
+                )
+            },
+            if s.layer_stacks.len() > 1 {
+                let stacks: Vec<String> = s
+                    .layer_stacks
+                    .iter()
+                    .map(|(k, n)| format!("{k}={n}"))
+                    .collect();
+                format!(", stacks {}", stacks.join(" "))
+            } else {
+                String::new()
             }
         )?;
         writeln!(
@@ -367,12 +446,18 @@ impl fmt::Display for TransformerTopology {
         for t in &self.global {
             write_assignment_line(f, t)?;
         }
+        let multi_stack = s.layer_stacks.len() > 1;
         for layer in &self.layers {
             writeln!(f)?;
+            if multi_stack {
+                write!(f, "layer {}.{}:", layer.stack, layer.index)?;
+            } else {
+                write!(f, "layer {}:", layer.index)?;
+            }
             write!(
                 f,
-                "layer {}: attention={} feed_forward={}",
-                layer.index, layer.attention, layer.feed_forward
+                " attention={} feed_forward={}",
+                layer.attention, layer.feed_forward
             )?;
             if layer.has_router {
                 f.write_str(" router")?;
@@ -416,6 +501,8 @@ fn opt_str(v: Option<usize>) -> String {
     v.map_or_else(|| "?".to_owned(), |n| n.to_string())
 }
 
+type LayerKey = (String, usize);
+
 /// Build the topology from an inventory and metadata.
 pub(super) fn assemble(
     tensors: &[TensorInfo],
@@ -425,25 +512,40 @@ pub(super) fn assemble(
     sorted.sort_by(|a, b| a.name.cmp(&b.name));
     sorted.dedup_by(|a, b| a.name == b.name);
 
-    let ctx = ClassifyContext {
-        has_expert_tensors: sorted.iter().any(|t| names_expert_tensor(&t.name)),
-    };
+    // Pre-pass: which layers hold expert tensors. The `gate` ambiguity is
+    // resolved per layer, never from another layer's experts.
+    let mut keyed: Vec<(Option<LayerKey>, &TensorInfo)> = Vec::with_capacity(sorted.len());
+    let mut layers_with_experts: BTreeSet<LayerKey> = BTreeSet::new();
+    for info in sorted {
+        let facts = name_facts(&info.name);
+        if facts.names_expert_tensor
+            && let Some(key) = &facts.layer_key
+        {
+            layers_with_experts.insert(key.clone());
+        }
+        keyed.push((facts.layer_key, info));
+    }
 
     let mut global = Vec::new();
-    let mut by_layer: BTreeMap<usize, Vec<RoleAssignment>> = BTreeMap::new();
-    for info in &sorted {
+    let mut by_layer: BTreeMap<LayerKey, Vec<RoleAssignment>> = BTreeMap::new();
+    for (key, info) in keyed {
+        let ctx = ClassifyContext {
+            has_expert_tensors: key
+                .as_ref()
+                .is_some_and(|k| layers_with_experts.contains(k)),
+        };
         let assignment = classify_tensor(info, ctx);
-        match assignment.layer {
-            Some(layer) => by_layer.entry(layer).or_default().push(assignment),
+        match key {
+            Some(key) => by_layer.entry(key).or_default().push(assignment),
             None => global.push(assignment),
         }
     }
 
     let layers: Vec<LayerTopology> = by_layer
         .into_iter()
-        .map(|(index, mut tensors)| {
+        .map(|((stack, index), mut tensors)| {
             refine_layer_norms(&mut tensors);
-            build_layer(index, tensors)
+            build_layer(stack, index, tensors)
         })
         .collect();
 
@@ -474,12 +576,11 @@ pub(super) fn assemble(
 }
 
 /// Gemma-2 pairs `post_attention_layernorm` with `pre_feedforward_layernorm`;
-/// in that layout the former is a true post-attention norm.
+/// only in that layout is the former a true post-attention norm. Other
+/// pre-MLP norms (`ffn_norm`, `ln_2`) do not trigger the reinterpretation.
 fn refine_layer_norms(tensors: &mut [RoleAssignment]) {
     let has_pre_ffn = tensors.iter().any(|t| {
-        t.role == TensorRole::MlpNorm
-            && t.confidence == RoleConfidence::Exact
-            && t.scope == RoleScope::Layer
+        t.scope == RoleScope::Layer && t.evidence.contains(&"pre_feedforward_layernorm_name")
     });
     if !has_pre_ffn {
         return;
@@ -490,14 +591,51 @@ fn refine_layer_norms(tensors: &mut [RoleAssignment]) {
         {
             t.role = TensorRole::PostAttentionNorm;
             t.confidence = RoleConfidence::Heuristic;
-            t.evidence.push("resolved_by_sibling_mlp_norm");
+            t.evidence
+                .push("resolved_by_sibling_pre_feedforward_layernorm");
         }
     }
 }
 
-fn build_layer(index: usize, tensors: Vec<RoleAssignment>) -> LayerTopology {
+fn attention_kind(dense: &BTreeSet<TensorRole>) -> AttentionKind {
     use TensorRole::*;
+    let fused = dense.contains(&AttentionQkv);
+    let out = dense.contains(&AttentionOutput);
+    let separate = [AttentionQuery, AttentionKey, AttentionValue]
+        .iter()
+        .filter(|r| dense.contains(r))
+        .count();
+    if fused && out {
+        AttentionKind::FusedQkv
+    } else if separate == 3 && out {
+        AttentionKind::Separate
+    } else if fused || out || separate > 0 {
+        AttentionKind::Partial
+    } else {
+        AttentionKind::Absent
+    }
+}
 
+fn dense_feed_forward_kind(dense: &BTreeSet<TensorRole>) -> FeedForwardKind {
+    use TensorRole::*;
+    let gate = dense.contains(&MlpGate);
+    let up = dense.contains(&MlpUp);
+    let down = dense.contains(&MlpDown);
+    let fused = dense.contains(&MlpGateUp);
+    if fused && down {
+        FeedForwardKind::FusedGateUp
+    } else if gate && up && down {
+        FeedForwardKind::Gated
+    } else if up && down {
+        FeedForwardKind::Plain
+    } else if gate || up || down || fused {
+        FeedForwardKind::Partial
+    } else {
+        FeedForwardKind::Absent
+    }
+}
+
+fn build_layer(stack: String, index: usize, tensors: Vec<RoleAssignment>) -> LayerTopology {
     let dense: BTreeSet<TensorRole> = tensors
         .iter()
         .filter(|t| t.scope == RoleScope::Layer)
@@ -505,50 +643,22 @@ fn build_layer(index: usize, tensors: Vec<RoleAssignment>) -> LayerTopology {
         .collect();
     let moe_tensors: Vec<&RoleAssignment> = tensors.iter().filter(|t| t.scope.is_moe()).collect();
 
-    let has_qkv = dense.contains(&AttentionQkv);
-    let q = dense.contains(&AttentionQuery);
-    let k = dense.contains(&AttentionKey);
-    let v = dense.contains(&AttentionValue);
-    let o = dense.contains(&AttentionOutput);
-    let attention = if has_qkv && o {
-        AttentionKind::FusedQkv
-    } else if q && k && v && o {
-        AttentionKind::Separate
-    } else if has_qkv || q || k || v || o {
-        AttentionKind::Partial
-    } else {
-        AttentionKind::Absent
-    };
-
-    let gate = dense.contains(&MlpGate);
-    let up = dense.contains(&MlpUp);
-    let down = dense.contains(&MlpDown);
-    let fused = dense.contains(&MlpGateUp);
-    let has_router = tensors.iter().any(|t| t.role == MoeRouter);
-    let has_dense_mlp = gate || up || down || fused;
-    let dense_kind = if fused && down {
-        FeedForwardKind::FusedGateUp
-    } else if gate && up && down {
-        FeedForwardKind::Gated
-    } else if up && down {
-        FeedForwardKind::Plain
-    } else if has_dense_mlp {
-        FeedForwardKind::Partial
-    } else {
-        FeedForwardKind::Absent
-    };
+    let attention = attention_kind(&dense);
+    let dense_kind = dense_feed_forward_kind(&dense);
+    let has_dense_mlp = dense_kind != FeedForwardKind::Absent;
+    let has_router = tensors.iter().any(|t| t.role == TensorRole::MoeRouter);
     let feed_forward = if !moe_tensors.is_empty() || has_router {
         FeedForwardKind::Moe
     } else {
         dense_kind
     };
-
     let has_shared_expert = moe_tensors
         .iter()
         .any(|t| t.scope == RoleScope::SharedExpert);
     let expert_count = expert_count(&moe_tensors);
 
     LayerTopology {
+        stack,
         index,
         attention,
         feed_forward,
@@ -579,22 +689,42 @@ fn expert_count(moe_tensors: &[&RoleAssignment]) -> Option<usize> {
     (stacked.len() == 1).then(|| stacked.into_iter().next().unwrap_or_default())
 }
 
+/// Stack with the most layers; ties go to the lexicographically first name.
+fn primary_stack(layer_stacks: &BTreeMap<String, usize>) -> Option<String> {
+    layer_stacks
+        .iter()
+        .fold(None::<(&String, usize)>, |best, (stack, &n)| match best {
+            Some((_, best_n)) if best_n >= n => best,
+            _ => Some((stack, n)),
+        })
+        .map(|(stack, _)| stack.clone())
+}
+
 fn summarize(
     global: &[RoleAssignment],
     layers: &[LayerTopology],
     declared_layer_count: Option<usize>,
 ) -> TopologySummary {
-    let all = global
-        .iter()
-        .chain(layers.iter().flat_map(|l| l.tensors.iter()));
-
     let mut summary = TopologySummary {
-        layer_count: layers.len(),
         is_moe: layers
             .iter()
             .any(|l| l.feed_forward == FeedForwardKind::Moe),
         ..TopologySummary::default()
     };
+    for l in layers {
+        *summary.layer_stacks.entry(l.stack.clone()).or_default() += 1;
+    }
+    summary.primary_stack = primary_stack(&summary.layer_stacks);
+    summary.layer_count = summary
+        .primary_stack
+        .as_ref()
+        .and_then(|s| summary.layer_stacks.get(s))
+        .copied()
+        .unwrap_or_default();
+
+    let all = global
+        .iter()
+        .chain(layers.iter().flat_map(|l| l.tensors.iter()));
     for t in all {
         summary.tensor_count += 1;
         *summary.role_counts.entry(t.role).or_default() += 1;
@@ -608,9 +738,9 @@ fn summarize(
     summary.ambiguous_tensors.sort();
     summary.unknown_tensors.sort();
 
-    let embedding = global.iter().find(|t| {
-        t.role == TensorRole::TokenEmbedding && t.param == super::role::ParamKind::Weight
-    });
+    let embedding = global
+        .iter()
+        .find(|t| t.role == TensorRole::TokenEmbedding && t.param == ParamKind::Weight);
     if let Some(e) = embedding {
         if e.dims.len() == 2 {
             summary.vocab_size_hint = Some(e.dims[0]);
@@ -619,14 +749,22 @@ fn summarize(
         summary.tied_embeddings_hint = !global.iter().any(|t| t.role == TensorRole::OutputHead);
     }
 
-    let present: BTreeSet<usize> = layers.iter().map(|l| l.index).collect();
-    let expected_end = match (declared_layer_count, present.iter().next_back()) {
-        (Some(n), Some(&max)) => n.max(max + 1),
-        (Some(n), None) => n,
-        (None, Some(&max)) => max + 1,
-        (None, None) => 0,
-    };
-    summary.missing_layers = (0..expected_end).filter(|i| !present.contains(i)).collect();
+    // Missing layers are computed for the primary stack only, with
+    // saturating arithmetic and a hard cap: both the highest index and the
+    // declared count are untrusted.
+    let present: BTreeSet<usize> = layers
+        .iter()
+        .filter(|l| Some(&l.stack) == summary.primary_stack.as_ref())
+        .map(|l| l.index)
+        .collect();
+    let highest_end = present
+        .iter()
+        .next_back()
+        .map_or(0, |&max| max.saturating_add(1));
+    let expected_end = declared_layer_count.unwrap_or(0).max(highest_end);
+    let mut missing = (0..expected_end).filter(|i| !present.contains(i));
+    summary.missing_layers = missing.by_ref().take(MAX_MISSING_LAYERS).collect();
+    summary.missing_layers_truncated = missing.next().is_some();
     summary
 }
 
@@ -779,5 +917,16 @@ mod tests {
         w.opt_string(None);
         w.end_object();
         assert_eq!(out, r#"{"a":1,"b":["x\"y",false,{}],"c":null}"#);
+    }
+
+    #[test]
+    fn primary_stack_prefers_most_layers_then_name() {
+        let mut stacks = BTreeMap::new();
+        assert_eq!(primary_stack(&stacks), None);
+        stacks.insert("visual.blocks".to_owned(), 2);
+        stacks.insert("model.layers".to_owned(), 2);
+        assert_eq!(primary_stack(&stacks).as_deref(), Some("model.layers"));
+        stacks.insert("visual.blocks".to_owned(), 3);
+        assert_eq!(primary_stack(&stacks).as_deref(), Some("visual.blocks"));
     }
 }

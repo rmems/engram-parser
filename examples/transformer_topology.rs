@@ -30,21 +30,32 @@ enum Mode {
     Json,
 }
 
-fn parse_args() -> std::result::Result<(String, Mode), String> {
-    let (mut path, mut mode) = (None, Mode::Text);
+const USAGE: &str =
+    "usage: cargo run --example transformer_topology -- [--json|--summary] [--] <checkpoint>";
+
+enum Parsed {
+    Run(String, Mode),
+    Help,
+}
+
+fn parse_args() -> std::result::Result<Parsed, String> {
+    let (mut path, mut mode, mut flags_done) = (None, Mode::Text, false);
     for arg in env::args().skip(1) {
         match arg.as_str() {
-            "--json" => mode = Mode::Json,
-            "--summary" => mode = Mode::Summary,
-            "--" => {}
-            "-h" | "--help" => return Err(String::new()),
-            flag if flag.starts_with("--") => return Err(format!("unknown flag {flag}")),
+            "--json" if !flags_done => mode = Mode::Json,
+            "--summary" if !flags_done => mode = Mode::Summary,
+            // Everything after `--` is a positional, even if it starts with `--`.
+            "--" if !flags_done => flags_done = true,
+            "-h" | "--help" if !flags_done => return Ok(Parsed::Help),
+            flag if !flags_done && flag.starts_with("--") => {
+                return Err(format!("unknown flag {flag}"));
+            }
             other if path.is_none() => path = Some(other.to_owned()),
             other => return Err(format!("unexpected argument {other}")),
         }
     }
     let path = path.ok_or_else(|| "missing checkpoint path".to_string())?;
-    Ok((path, mode))
+    Ok(Parsed::Run(path, mode))
 }
 
 fn print_summary(topo: &TransformerTopology) {
@@ -93,14 +104,14 @@ fn print_summary(topo: &TransformerTopology) {
 
 fn main() -> ExitCode {
     let (path, mode) = match parse_args() {
-        Ok(parsed) => parsed,
+        Ok(Parsed::Run(path, mode)) => (path, mode),
+        Ok(Parsed::Help) => {
+            println!("{USAGE}");
+            return ExitCode::SUCCESS;
+        }
         Err(msg) => {
-            if !msg.is_empty() {
-                eprintln!("error: {msg}");
-            }
-            eprintln!(
-                "usage: cargo run --example transformer_topology -- [--json|--summary] <checkpoint>"
-            );
+            eprintln!("error: {msg}");
+            eprintln!("{USAGE}");
             return ExitCode::from(2);
         }
     };

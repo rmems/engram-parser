@@ -314,7 +314,11 @@ fn gemma2_sibling_norm_resolves_post_attention_layernorm() {
         .unwrap();
     assert_eq!(post_attn.role, TensorRole::PostAttentionNorm);
     assert_eq!(post_attn.confidence, RoleConfidence::Heuristic);
-    assert!(post_attn.evidence.contains(&"resolved_by_sibling_mlp_norm"));
+    assert!(
+        post_attn
+            .evidence
+            .contains(&"resolved_by_sibling_pre_feedforward_layernorm")
+    );
     assert_eq!(
         topo.tensor("model.layers.0.post_feedforward_layernorm.weight")
             .unwrap()
@@ -502,6 +506,237 @@ fn empty_inventory_is_valid() {
         topo.to_json().matches('{').count(),
         topo.to_json().matches('}').count()
     );
+}
+
+#[test]
+fn gguf_per_expert_tensors_are_experts_not_unknown() {
+    use TensorRole::*;
+    let mut inv = vec![
+        mock("blk.0.attn_norm.weight", &[HIDDEN]),
+        mock("blk.0.ffn_norm.weight", &[HIDDEN]),
+        mock("blk.0.ffn_gate_inp.weight", &[3, HIDDEN]),
+    ];
+    for e in 0..3 {
+        inv.push(mock(&format!("blk.0.ffn_gate.{e}.weight"), &[FFN, HIDDEN]));
+        inv.push(mock(&format!("blk.0.ffn_up_{e}.weight"), &[FFN, HIDDEN]));
+        inv.push(mock(&format!("blk.0.ffn_down.{e}.weight"), &[HIDDEN, FFN]));
+    }
+    let topo = discover_topology_from_parts(&inv, &CheckpointMetadata::new());
+    let layer = topo.layer(0).unwrap();
+    assert_eq!(layer.feed_forward, FeedForwardKind::Moe);
+    assert_eq!(layer.expert_count, Some(3));
+    assert!(layer.has_router);
+    assert_eq!(
+        layer.expert_roles(),
+        [MlpGate, MlpUp, MlpDown].into_iter().collect()
+    );
+    let up = topo.tensor("blk.0.ffn_up_2.weight").unwrap();
+    assert_eq!((up.role, up.scope), (MlpUp, RoleScope::Expert(2)));
+    assert!(topo.summary.unknown_tensors.is_empty());
+}
+
+#[test]
+fn expert_context_is_per_layer_not_checkpoint_wide() {
+    // Layer 0 is MoE (Qwen-style `mlp.gate` router + experts); layer 1 is a
+    // dense layer that happens to have a bare `mlp.gate`. Only layer 0's
+    // gate may be read as a router.
+    let inv = vec![
+        mock("model.layers.0.mlp.gate.weight", &[3, HIDDEN]),
+        mock(
+            "model.layers.0.mlp.experts.0.up_proj.weight",
+            &[FFN, HIDDEN],
+        ),
+        mock(
+            "model.layers.0.mlp.experts.1.up_proj.weight",
+            &[FFN, HIDDEN],
+        ),
+        mock("model.layers.1.mlp.gate.weight", &[FFN, HIDDEN]),
+        mock("model.layers.1.mlp.up_proj.weight", &[FFN, HIDDEN]),
+        mock("model.layers.1.mlp.down_proj.weight", &[HIDDEN, FFN]),
+    ];
+    let topo = discover_topology_from_parts(&inv, &CheckpointMetadata::new());
+    let l0_gate = topo.tensor("model.layers.0.mlp.gate.weight").unwrap();
+    assert_eq!(l0_gate.role, TensorRole::MoeRouter);
+    assert_eq!(l0_gate.confidence, RoleConfidence::Heuristic);
+    let l1_gate = topo.tensor("model.layers.1.mlp.gate.weight").unwrap();
+    assert_eq!(l1_gate.role, TensorRole::Unknown);
+    assert_eq!(l1_gate.confidence, RoleConfidence::Ambiguous);
+    assert_eq!(topo.layer(0).unwrap().feed_forward, FeedForwardKind::Moe);
+    assert_eq!(topo.layer(1).unwrap().feed_forward, FeedForwardKind::Plain);
+    assert_eq!(
+        topo.summary.ambiguous_tensors,
+        vec!["model.layers.1.mlp.gate.weight".to_string()]
+    );
+}
+
+#[test]
+fn multimodal_layer_stacks_are_kept_apart() {
+    let mut inv = Vec::new();
+    for l in 0..3 {
+        inv.push(mock(
+            &format!("model.layers.{l}.self_attn.q_proj.weight"),
+            &[HIDDEN, HIDDEN],
+        ));
+        inv.push(mock(
+            &format!("model.layers.{l}.self_attn.k_proj.weight"),
+            &[HIDDEN, HIDDEN],
+        ));
+        inv.push(mock(
+            &format!("model.layers.{l}.self_attn.v_proj.weight"),
+            &[HIDDEN, HIDDEN],
+        ));
+        inv.push(mock(
+            &format!("model.layers.{l}.self_attn.o_proj.weight"),
+            &[HIDDEN, HIDDEN],
+        ));
+    }
+    for l in 0..2 {
+        inv.push(mock(
+            &format!("visual.blocks.{l}.attn.qkv.weight"),
+            &[3 * HIDDEN, HIDDEN],
+        ));
+        inv.push(mock(
+            &format!("visual.blocks.{l}.attn.proj.weight"),
+            &[HIDDEN, HIDDEN],
+        ));
+        inv.push(mock(
+            &format!("visual.blocks.{l}.mlp.fc1.weight"),
+            &[FFN, HIDDEN],
+        ));
+        inv.push(mock(
+            &format!("visual.blocks.{l}.mlp.fc2.weight"),
+            &[HIDDEN, FFN],
+        ));
+    }
+    let topo = discover_topology_from_parts(&inv, &CheckpointMetadata::new());
+
+    assert_eq!(topo.layers.len(), 5);
+    assert_eq!(
+        topo.summary.layer_stacks,
+        [
+            ("model.layers".to_string(), 3),
+            ("visual.blocks".to_string(), 2)
+        ]
+        .into_iter()
+        .collect()
+    );
+    assert_eq!(topo.summary.primary_stack.as_deref(), Some("model.layers"));
+    assert_eq!(topo.summary.layer_count, 3);
+    assert!(topo.summary.missing_layers.is_empty());
+
+    // Same index, different stacks, different structure.
+    let text_layer = topo.layer(0).unwrap();
+    assert_eq!(text_layer.stack, "model.layers");
+    assert_eq!(text_layer.attention, AttentionKind::Separate);
+    assert_eq!(text_layer.feed_forward, FeedForwardKind::Absent);
+    let vis_layer = topo.layer_in("visual.blocks", 0).unwrap();
+    assert_eq!(vis_layer.attention, AttentionKind::FusedQkv);
+    assert_eq!(vis_layer.feed_forward, FeedForwardKind::Plain);
+    assert_eq!(topo.layer_in("visual.blocks", 2), None);
+    assert_eq!(topo.primary_layers().count(), 3);
+
+    let text = topo.to_string();
+    assert!(text.contains("layer model.layers.0:"));
+    assert!(text.contains("layer visual.blocks.1:"));
+    assert!(text.contains("stacks model.layers=3 visual.blocks=2"));
+    assert!(topo.to_json().contains(r#""stack":"visual.blocks""#));
+}
+
+#[test]
+fn missing_layers_are_bounded_against_hostile_indices() {
+    use engram_parser::analysis::transformer::MAX_MISSING_LAYERS;
+
+    // A single crafted name must not allocate billions of entries.
+    let inv = vec![
+        mock("blk.0.attn_q.weight", &[HIDDEN, HIDDEN]),
+        mock("blk.4000000000.attn_q.weight", &[HIDDEN, HIDDEN]),
+    ];
+    let topo = discover_topology_from_parts(&inv, &CheckpointMetadata::new());
+    assert_eq!(topo.summary.layer_count, 2);
+    assert_eq!(topo.summary.missing_layers.len(), MAX_MISSING_LAYERS);
+    assert!(topo.summary.missing_layers_truncated);
+    assert_eq!(topo.summary.missing_layers[0], 1);
+    assert!(
+        topo.to_json()
+            .contains(r#""missing_layers_truncated":true"#)
+    );
+
+    // usize::MAX as a layer index must not overflow.
+    let inv = vec![mock(
+        &format!("blk.{}.attn_q.weight", usize::MAX),
+        &[HIDDEN, HIDDEN],
+    )];
+    let topo = discover_topology_from_parts(&inv, &CheckpointMetadata::new());
+    assert_eq!(topo.summary.layer_count, 1);
+    assert!(topo.summary.missing_layers_truncated);
+
+    // A hostile declared block_count is capped the same way.
+    let mut meta = CheckpointMetadata::new();
+    meta.insert(
+        "general.architecture",
+        MetadataValue::String("llama".into()),
+    );
+    meta.insert("llama.block_count", MetadataValue::UInt(u64::MAX));
+    let topo = discover_topology_from_parts(&[mock("blk.0.attn_q.weight", &[8, 8])], &meta);
+    assert!(topo.summary.missing_layers.len() <= MAX_MISSING_LAYERS);
+    assert!(topo.summary.missing_layers_truncated);
+
+    // Within the cap nothing is truncated.
+    let inv = vec![
+        mock("blk.0.attn_q.weight", &[HIDDEN, HIDDEN]),
+        mock("blk.5.attn_q.weight", &[HIDDEN, HIDDEN]),
+    ];
+    let topo = discover_topology_from_parts(&inv, &CheckpointMetadata::new());
+    assert_eq!(topo.summary.missing_layers, vec![1, 2, 3, 4]);
+    assert!(!topo.summary.missing_layers_truncated);
+}
+
+#[test]
+fn post_attention_layernorm_is_only_reinterpreted_next_to_pre_feedforward_norm() {
+    // `ln_2` is also an exact pre-MLP norm, but it is not the Gemma-2
+    // signal: the Llama reading of `post_attention_layernorm` must stand.
+    let inv = vec![
+        mock("model.layers.0.post_attention_layernorm.weight", &[HIDDEN]),
+        mock("model.layers.0.ln_2.weight", &[HIDDEN]),
+    ];
+    let topo = discover_topology_from_parts(&inv, &CheckpointMetadata::new());
+    let norm = topo
+        .tensor("model.layers.0.post_attention_layernorm.weight")
+        .unwrap();
+    assert_eq!(norm.role, TensorRole::MlpNorm);
+    assert_eq!(norm.confidence, RoleConfidence::Heuristic);
+}
+
+#[test]
+fn mamba_mixer_projections_stay_unknown() {
+    let inv = vec![
+        mock("backbone.layers.0.mixer.in_proj.weight", &[2 * FFN, HIDDEN]),
+        mock("backbone.layers.0.mixer.out_proj.weight", &[HIDDEN, FFN]),
+        mock("backbone.layers.0.norm.weight", &[HIDDEN]),
+    ];
+    let topo = discover_topology_from_parts(&inv, &CheckpointMetadata::new());
+    let layer = topo.layer(0).unwrap();
+    assert_eq!(layer.attention, AttentionKind::Absent);
+    assert_eq!(layer.feed_forward, FeedForwardKind::Absent);
+    assert_eq!(topo.summary.unknown_tensors.len(), 3);
+}
+
+#[test]
+fn display_columns_line_up() {
+    let topo = discover_topology(&dense_gguf());
+    let text = topo.to_string();
+    // Every per-tensor row pads role/scope/param/confidence to fixed widths,
+    // so the dtype label starts at the same column in each row.
+    let rows: Vec<&str> = text
+        .lines()
+        .filter(|l| l.starts_with("  blk.0.") || l.starts_with("  token_embd"))
+        .collect();
+    assert!(rows.len() >= 5);
+    let dims_col = |row: &str| row.find('[').expect("dims column");
+    let first = dims_col(rows[0]);
+    for row in &rows {
+        assert_eq!(dims_col(row), first, "misaligned row: {row}");
+    }
 }
 
 #[cfg(feature = "safetensors")]

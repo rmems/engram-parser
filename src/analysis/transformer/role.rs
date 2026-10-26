@@ -133,7 +133,7 @@ impl TensorRole {
 
 impl fmt::Display for TensorRole {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
+        f.pad(self.as_str())
     }
 }
 
@@ -166,11 +166,11 @@ impl RoleScope {
 impl fmt::Display for RoleScope {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Global => f.write_str("global"),
-            Self::Layer => f.write_str("layer"),
-            Self::Expert(i) => write!(f, "expert[{i}]"),
-            Self::StackedExperts => f.write_str("experts[stacked]"),
-            Self::SharedExpert => f.write_str("shared_expert"),
+            Self::Global => f.pad("global"),
+            Self::Layer => f.pad("layer"),
+            Self::Expert(i) => f.pad(&format!("expert[{i}]")),
+            Self::StackedExperts => f.pad("experts[stacked]"),
+            Self::SharedExpert => f.pad("shared_expert"),
         }
     }
 }
@@ -200,7 +200,7 @@ impl ParamKind {
 
 impl fmt::Display for ParamKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
+        f.pad(self.as_str())
     }
 }
 
@@ -234,7 +234,7 @@ impl RoleConfidence {
 
 impl fmt::Display for RoleConfidence {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
+        f.pad(self.as_str())
     }
 }
 
@@ -254,6 +254,10 @@ pub struct RoleAssignment {
     /// Candidate roles when `confidence` is [`RoleConfidence::Ambiguous`];
     /// sorted, otherwise empty.
     pub alternatives: Vec<TensorRole>,
+    /// Lowercased name prefix up to and including the layer marker
+    /// (`"blk"`, `"model.layers"`, `"visual.blocks"`), when the name carries
+    /// a layer index. Distinguishes layer stacks of multi-tower checkpoints.
+    pub stack: Option<String>,
     /// Layer index parsed from the name, if any.
     pub layer: Option<usize>,
     /// Stable, human-readable reasons behind the assignment.
@@ -264,21 +268,36 @@ pub struct RoleAssignment {
     pub dtype: String,
 }
 
-/// Checkpoint-wide facts the per-tensor classifier may consult.
+/// Layer-local facts the per-tensor classifier may consult.
 ///
-/// Built by [`super::discover_topology`]; tests can construct it directly.
+/// Built by [`super::discover_topology`] for each layer; tests can
+/// construct it directly.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ClassifyContext {
-    /// Some tensor in the checkpoint is an expert tensor (`experts.N.*`,
-    /// `*_exps`, `shared_expert*`). Lets a bare `mlp.gate.weight` be read
-    /// as a router instead of staying ambiguous.
+    /// Some tensor **in the same layer** is an expert tensor
+    /// (`experts.N.*`, `*_exps`, `shared_expert*`, `ffn_<role>.<E>`). Lets
+    /// a bare `mlp.gate.weight` in that layer be read as a router instead
+    /// of staying ambiguous. Must not be set from other layers.
     pub has_expert_tensors: bool,
 }
 
-/// `true` when the name alone marks an MoE expert tensor.
-pub(super) fn names_expert_tensor(name: &str) -> bool {
+/// Name-only facts used by the topology pass to group tensors before
+/// classification.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct NameFacts {
+    /// `(stack, layer index)` when the name carries a layer marker.
+    pub(super) layer_key: Option<(String, usize)>,
+    /// `true` when the name alone marks an MoE expert tensor.
+    pub(super) names_expert_tensor: bool,
+}
+
+/// Extract grouping facts from a tensor name.
+pub(super) fn name_facts(name: &str) -> NameFacts {
     let parts = NameParts::new(name);
-    parts.in_experts || parts.in_shared_expert
+    NameFacts {
+        layer_key: parts.layer_key(),
+        names_expert_tensor: parts.in_experts || parts.in_shared_expert,
+    }
 }
 
 /// Classify one tensor by name and shape.
@@ -295,6 +314,7 @@ pub fn classify_tensor(info: &TensorInfo, ctx: ClassifyContext) -> RoleAssignmen
         param: parts.param,
         confidence: RoleConfidence::Unknown,
         alternatives: Vec::new(),
+        stack: parts.layer_key().map(|(stack, _)| stack),
         layer: parts.layer,
         evidence: Vec::new(),
         dims,
@@ -332,6 +352,8 @@ pub fn classify_tensor(info: &TensorInfo, ctx: ClassifyContext) -> RoleAssignmen
 const LAYER_MARKERS: &[&str] = &["blk", "layers", "layer", "blocks", "block", "h"];
 /// Marker segments that identify a per-expert index.
 const EXPERT_MARKERS: &[&str] = &["experts", "expert"];
+/// GGUF per-expert components: `blk.N.ffn_gate.E` or `blk.N.ffn_gate_E`.
+const GGUF_EXPERT_ROLES: &[&str] = &["ffn_gate", "ffn_up", "ffn_down"];
 const ATTENTION_CONTEXT: &[&str] = &["self_attn", "attention", "attn", "self_attention"];
 const FEED_FORWARD_CONTEXT: &[&str] = &[
     "mlp",
@@ -360,11 +382,14 @@ const PARAM_SUFFIXES: &[(&str, ParamKind)] = &[
 
 #[derive(Debug)]
 struct NameParts {
-    /// Lowercased `.`/`/`-separated segments without the parameter suffix.
+    /// Lowercased `.`/`/`-separated segments without the parameter suffix
+    /// or a trailing GGUF per-expert index.
     segments: Vec<String>,
     /// Last segment of `segments`: the component name (`attn_q`, `q_proj`).
     component: String,
     param: ParamKind,
+    /// Position of the layer marker segment, when present.
+    layer_marker: Option<usize>,
     layer: Option<usize>,
     expert_index: Option<usize>,
     in_attention: bool,
@@ -382,26 +407,25 @@ impl NameParts {
             .map(str::to_owned)
             .collect();
 
-        let mut param = ParamKind::Weight;
-        if segments.len() > 1 {
-            let last = segments.last().map(String::as_str).unwrap_or_default();
-            if let Some((_, kind)) = PARAM_SUFFIXES.iter().find(|(s, _)| *s == last) {
-                param = *kind;
-                segments.pop();
-            }
-        }
+        let param = strip_param_suffix(&mut segments);
+        let gguf_expert = split_gguf_expert_index(&mut segments);
         let component = segments.last().cloned().unwrap_or_default();
 
-        let layer = number_after(&segments, LAYER_MARKERS);
-        let expert_index = number_after(&segments, EXPERT_MARKERS);
+        let (layer_marker, layer) = match position_and_number_after(&segments, LAYER_MARKERS) {
+            Some((pos, n)) => (Some(pos), Some(n)),
+            None => (None, None),
+        };
+        let expert_index = gguf_expert
+            .or_else(|| position_and_number_after(&segments, EXPERT_MARKERS).map(|(_, n)| n));
         let in_attention = segments
             .iter()
             .any(|s| ATTENTION_CONTEXT.contains(&s.as_str()));
         let in_shared_expert = segments.iter().any(|s| s.starts_with("shared_expert"))
             || component.ends_with("_shexp");
-        let in_experts = segments
-            .iter()
-            .any(|s| EXPERT_MARKERS.contains(&s.as_str()))
+        let in_experts = gguf_expert.is_some()
+            || segments
+                .iter()
+                .any(|s| EXPERT_MARKERS.contains(&s.as_str()))
             || component.ends_with("_exps");
         let in_feed_forward = segments
             .iter()
@@ -414,6 +438,7 @@ impl NameParts {
             segments,
             component,
             param,
+            layer_marker,
             layer,
             expert_index,
             in_attention,
@@ -437,6 +462,13 @@ impl NameParts {
         }
     }
 
+    /// `(stack prefix, layer index)`; the stack is every segment up to and
+    /// including the layer marker.
+    fn layer_key(&self) -> Option<(String, usize)> {
+        let (marker, layer) = (self.layer_marker?, self.layer?);
+        Some((self.segments[..=marker].join("."), layer))
+    }
+
     /// Segment immediately before the component, if any.
     fn parent(&self) -> &str {
         self.segments
@@ -451,11 +483,52 @@ impl NameParts {
     }
 }
 
-fn number_after(segments: &[String], markers: &[&str]) -> Option<usize> {
-    segments.windows(2).find_map(|w| {
+/// Pop a recognized parameter suffix (`weight`, `bias`, …) and return its
+/// kind; a one-segment name is never stripped.
+fn strip_param_suffix(segments: &mut Vec<String>) -> ParamKind {
+    if segments.len() < 2 {
+        return ParamKind::Weight;
+    }
+    let last = segments.last().map(String::as_str).unwrap_or_default();
+    match PARAM_SUFFIXES.iter().find(|(s, _)| *s == last) {
+        Some((_, kind)) => {
+            let kind = *kind;
+            segments.pop();
+            kind
+        }
+        None => ParamKind::Weight,
+    }
+}
+
+/// Recognize the GGUF per-expert conventions `ffn_<role>.<E>` and
+/// `ffn_<role>_<E>`; normalize the component to `ffn_<role>` and return `E`.
+fn split_gguf_expert_index(segments: &mut Vec<String>) -> Option<usize> {
+    let last = segments.last()?.clone();
+    if let Ok(index) = last.parse::<usize>() {
+        let prev = segments.len().checked_sub(2)?;
+        if GGUF_EXPERT_ROLES.contains(&segments[prev].as_str()) {
+            segments.pop();
+            return Some(index);
+        }
+        return None;
+    }
+    for role in GGUF_EXPERT_ROLES {
+        if let Some(tail) = last.strip_prefix(role).and_then(|t| t.strip_prefix('_'))
+            && let Ok(index) = tail.parse::<usize>()
+        {
+            *segments.last_mut()? = (*role).to_owned();
+            return Some(index);
+        }
+    }
+    None
+}
+
+/// First `marker.<number>` pair: `(marker position, number)`.
+fn position_and_number_after(segments: &[String], markers: &[&str]) -> Option<(usize, usize)> {
+    segments.windows(2).enumerate().find_map(|(pos, w)| {
         markers
             .contains(&w[0].as_str())
-            .then(|| w[1].parse::<usize>().ok())
+            .then(|| w[1].parse::<usize>().ok().map(|n| (pos, n)))
             .flatten()
     })
 }
@@ -466,12 +539,12 @@ enum Outcome {
     Unknown,
 }
 
-fn exact(role: TensorRole, reason: &'static str) -> Outcome {
-    Outcome::Role(role, RoleConfidence::Exact, reason)
+fn exact(role: TensorRole, reason: &'static str) -> Option<Outcome> {
+    Some(Outcome::Role(role, RoleConfidence::Exact, reason))
 }
 
-fn heuristic(role: TensorRole, reason: &'static str) -> Outcome {
-    Outcome::Role(role, RoleConfidence::Heuristic, reason)
+fn heuristic(role: TensorRole, reason: &'static str) -> Option<Outcome> {
+    Some(Outcome::Role(role, RoleConfidence::Heuristic, reason))
 }
 
 /// Router-like 2-D shape: a small expert axis against a large hidden axis.
@@ -485,159 +558,170 @@ fn router_shape_hint(dims: &[usize]) -> bool {
         && dims.iter().copied().max().is_some_and(|v| v >= 512)
 }
 
+/// Run the component matchers in precedence order.
 fn match_component(parts: &NameParts, ctx: ClassifyContext, dims: &[usize]) -> Outcome {
-    use TensorRole::*;
-
-    let c = parts.component.as_str();
-
-    // --- Global tensors -------------------------------------------------
     if parts.layer.is_none() {
-        return match c {
-            "token_embd" | "embed_tokens" | "tok_embeddings" | "wte" | "embed_in"
-            | "word_embeddings" | "embedding" | "embeddings" | "word_embedding" => {
-                exact(TokenEmbedding, "token_embedding_name")
-            }
-            "position_embd"
-            | "wpe"
-            | "embed_positions"
-            | "position_embeddings"
-            | "pos_embd"
-            | "pos_embedding" => exact(PositionEmbedding, "position_embedding_name"),
-            "output" | "lm_head" | "embed_out" => exact(OutputHead, "output_head_name"),
-            "output_norm" | "ln_f" | "final_layer_norm" | "final_layernorm" | "final_norm"
-            | "norm" => exact(OutputNorm, "output_norm_name"),
-            "rope_freqs" | "inv_freq" => exact(RotaryFrequencies, "rotary_frequencies_name"),
-            _ => Outcome::Unknown,
-        };
+        return match_global(parts).unwrap_or(Outcome::Unknown);
     }
+    match_norm(parts)
+        .or_else(|| match_attention(parts))
+        .or_else(|| match_router(parts, ctx, dims))
+        .or_else(|| match_feed_forward(parts))
+        .unwrap_or(Outcome::Unknown)
+}
 
-    // --- Layer-scoped: rotary tables stored per layer -------------------
-    if c == "inv_freq" || c == "rope_freqs" {
-        return exact(RotaryFrequencies, "rotary_frequencies_name");
+/// Tensors with no layer index.
+fn match_global(parts: &NameParts) -> Option<Outcome> {
+    use TensorRole::*;
+    match parts.component.as_str() {
+        "token_embd" | "embed_tokens" | "tok_embeddings" | "wte" | "embed_in"
+        | "word_embeddings" | "embedding" | "embeddings" | "word_embedding" => {
+            exact(TokenEmbedding, "token_embedding_name")
+        }
+        "position_embd"
+        | "wpe"
+        | "embed_positions"
+        | "position_embeddings"
+        | "pos_embd"
+        | "pos_embedding" => exact(PositionEmbedding, "position_embedding_name"),
+        "output" | "lm_head" | "embed_out" => exact(OutputHead, "output_head_name"),
+        "output_norm" | "ln_f" | "final_layer_norm" | "final_layernorm" | "final_norm" | "norm" => {
+            exact(OutputNorm, "output_norm_name")
+        }
+        "rope_freqs" | "inv_freq" => exact(RotaryFrequencies, "rotary_frequencies_name"),
+        _ => None,
     }
+}
 
-    // --- Norms ----------------------------------------------------------
-    match c {
+/// Layer-scoped normalization tensors and rotary tables.
+fn match_norm(parts: &NameParts) -> Option<Outcome> {
+    use TensorRole::*;
+    match parts.component.as_str() {
+        "inv_freq" | "rope_freqs" => exact(RotaryFrequencies, "rotary_frequencies_name"),
         "attn_norm"
         | "input_layernorm"
         | "ln_1"
         | "attention_norm"
         | "ln_attn"
         | "pre_attention_layernorm"
-        | "attention_layernorm" => {
-            return exact(AttentionNorm, "attention_norm_name");
-        }
+        | "attention_layernorm" => exact(AttentionNorm, "attention_norm_name"),
         "post_attention_norm" | "post_attn_norm" => {
-            return exact(PostAttentionNorm, "post_attention_norm_name");
+            exact(PostAttentionNorm, "post_attention_norm_name")
         }
+        // Llama: the pre-MLP norm. Gemma-2: a true post-attention norm,
+        // paired with `pre_feedforward_layernorm`. The topology pass
+        // resolves this per layer; alone it stays a heuristic.
         "post_attention_layernorm" => {
-            // Llama: the pre-MLP norm. Gemma-2: a true post-attention norm,
-            // paired with `pre_feedforward_layernorm`. The topology pass
-            // resolves this per layer; alone it stays a heuristic.
-            return heuristic(MlpNorm, "post_attention_layernorm_llama_convention");
+            heuristic(MlpNorm, "post_attention_layernorm_llama_convention")
         }
-        "ffn_norm"
-        | "ln_2"
-        | "pre_feedforward_layernorm"
-        | "ln_mlp"
-        | "mlp_norm"
-        | "pre_mlp_layernorm" => return exact(MlpNorm, "mlp_norm_name"),
+        "pre_feedforward_layernorm" => exact(MlpNorm, "pre_feedforward_layernorm_name"),
+        "ffn_norm" | "ln_2" | "ln_mlp" | "mlp_norm" | "pre_mlp_layernorm" => {
+            exact(MlpNorm, "mlp_norm_name")
+        }
         "post_ffw_norm" | "post_feedforward_layernorm" | "post_mlp_norm" => {
-            return exact(PostMlpNorm, "post_mlp_norm_name");
+            exact(PostMlpNorm, "post_mlp_norm_name")
         }
         "attn_q_norm" | "q_norm" | "query_norm" | "q_layernorm" => {
-            return exact(AttentionQueryNorm, "attention_query_norm_name");
+            exact(AttentionQueryNorm, "attention_query_norm_name")
         }
         "attn_k_norm" | "k_norm" | "key_norm" | "k_layernorm" => {
-            return exact(AttentionKeyNorm, "attention_key_norm_name");
+            exact(AttentionKeyNorm, "attention_key_norm_name")
         }
-        _ => {}
+        _ => None,
     }
+}
 
-    // --- Attention projections ----------------------------------------
+/// Attention projections. Names that other block types reuse (`in_proj`,
+/// `out_proj`, `dense`, `c_proj`, …) require an attention segment in the
+/// path; Mamba's `mixer.in_proj` therefore stays unknown.
+fn match_attention(parts: &NameParts) -> Option<Outcome> {
+    use TensorRole::*;
+    let c = parts.component.as_str();
+    let unconditional = match c {
+        "attn_q" | "q_proj" | "wq" | "query" => exact(AttentionQuery, "query_name"),
+        "attn_k" | "k_proj" | "wk" | "key" => exact(AttentionKey, "key_name"),
+        "attn_v" | "v_proj" | "wv" | "value" => exact(AttentionValue, "value_name"),
+        "attn_qkv" | "c_attn" | "query_key_value" | "qkv_proj" | "wqkv" | "qkv" => {
+            exact(AttentionQkv, "fused_qkv_name")
+        }
+        "attn_output" | "o_proj" | "wo" => exact(AttentionOutput, "attention_output_name"),
+        _ => None,
+    };
+    if unconditional.is_some() || !parts.in_attention || parts.in_feed_forward {
+        return unconditional;
+    }
     match c {
-        "attn_q" | "q_proj" | "wq" | "query" => return exact(AttentionQuery, "query_name"),
-        "attn_k" | "k_proj" | "wk" | "key" => return exact(AttentionKey, "key_name"),
-        "attn_v" | "v_proj" | "wv" | "value" => return exact(AttentionValue, "value_name"),
-        "attn_qkv" | "c_attn" | "query_key_value" | "qkv_proj" | "wqkv" | "qkv" | "in_proj" => {
-            return exact(AttentionQkv, "fused_qkv_name");
+        "q" => exact(AttentionQuery, "query_name"),
+        "k" => exact(AttentionKey, "key_name"),
+        "v" => exact(AttentionValue, "value_name"),
+        "in_proj" => exact(AttentionQkv, "fused_qkv_name"),
+        "dense" | "c_proj" | "proj" | "o" | "out_proj" => {
+            exact(AttentionOutput, "attention_output_name")
         }
-        "attn_output" | "o_proj" | "wo" | "out_proj" => {
-            return exact(AttentionOutput, "attention_output_name");
-        }
-        _ => {}
+        _ => None,
     }
-    if parts.in_attention && !parts.in_feed_forward {
-        match c {
-            "q" => return exact(AttentionQuery, "query_name"),
-            "k" => return exact(AttentionKey, "key_name"),
-            "v" => return exact(AttentionValue, "value_name"),
-            "dense" | "c_proj" | "proj" | "o" => {
-                return exact(AttentionOutput, "attention_output_name");
-            }
-            _ => {}
-        }
-    }
+}
 
-    // --- MoE router -----------------------------------------------------
-    match c {
-        "ffn_gate_inp" | "router" | "gate_inp" => return exact(MoeRouter, "router_name"),
-        "shared_expert_gate" => return exact(MoeRouter, "shared_expert_gate_name"),
+/// MoE routers, including the documented bare-`gate` ambiguity.
+fn match_router(parts: &NameParts, ctx: ClassifyContext, dims: &[usize]) -> Option<Outcome> {
+    use TensorRole::*;
+    match parts.component.as_str() {
+        "ffn_gate_inp" | "router" | "gate_inp" => exact(MoeRouter, "router_name"),
+        "shared_expert_gate" => exact(MoeRouter, "shared_expert_gate_name"),
         "gate" => {
             let parent = parts.parent();
             if parent == "block_sparse_moe" || parent == "moe" || parent == "router" {
-                return exact(MoeRouter, "moe_parent_gate_name");
-            }
-            if parts.in_experts {
+                exact(MoeRouter, "moe_parent_gate_name")
+            } else if parts.in_experts {
                 // `experts.N.gate`: a per-expert gate projection.
-                return heuristic(MlpGate, "expert_scoped_gate_name");
+                heuristic(MlpGate, "expert_scoped_gate_name")
+            } else if ctx.has_expert_tensors {
+                heuristic(MoeRouter, "gate_name_with_expert_tensors_present")
+            } else if router_shape_hint(dims) {
+                heuristic(MoeRouter, "gate_name_with_router_shape")
+            } else {
+                Some(Outcome::Ambiguous(
+                    vec![MoeRouter, MlpGate],
+                    "bare_gate_name",
+                ))
             }
-            if ctx.has_expert_tensors {
-                return heuristic(MoeRouter, "gate_name_with_expert_tensors_present");
-            }
-            if router_shape_hint(dims) {
-                return heuristic(MoeRouter, "gate_name_with_router_shape");
-            }
-            return Outcome::Ambiguous(vec![MoeRouter, MlpGate], "bare_gate_name");
         }
-        _ => {}
+        _ => None,
     }
+}
 
-    // --- Feed-forward projections --------------------------------------
-    match c {
+/// Dense and expert feed-forward projections.
+fn match_feed_forward(parts: &NameParts) -> Option<Outcome> {
+    use TensorRole::*;
+    let c = parts.component.as_str();
+    let unconditional = match c {
         "ffn_gate" | "ffn_gate_exps" | "ffn_gate_shexp" | "gate_proj" => {
-            return exact(MlpGate, "gate_proj_name");
+            exact(MlpGate, "gate_proj_name")
         }
         "ffn_up" | "ffn_up_exps" | "ffn_up_shexp" | "up_proj" | "c_fc" | "dense_h_to_4h"
-        | "fc1" | "fc_in" | "wi" | "linear_1" => return exact(MlpUp, "up_proj_name"),
+        | "fc1" | "fc_in" | "wi" | "linear_1" => exact(MlpUp, "up_proj_name"),
         "ffn_down" | "ffn_down_exps" | "ffn_down_shexp" | "down_proj" | "dense_4h_to_h" | "fc2"
-        | "fc_out" | "linear_2" => return exact(MlpDown, "down_proj_name"),
+        | "fc_out" | "linear_2" => exact(MlpDown, "down_proj_name"),
         "gate_up_proj" | "ffn_gate_up" | "ffn_up_gate" | "w13" | "fused_gate_up" => {
-            return exact(MlpGateUp, "fused_gate_up_name");
+            exact(MlpGateUp, "fused_gate_up_name")
         }
-        "w1" => return heuristic(MlpGate, "w1_llama_convention_gate"),
-        "w3" => return heuristic(MlpUp, "w3_llama_convention_up"),
-        "w2" => return heuristic(MlpDown, "w2_llama_convention_down"),
-        _ => {}
+        "w1" => heuristic(MlpGate, "w1_llama_convention_gate"),
+        "w3" => heuristic(MlpUp, "w3_llama_convention_up"),
+        "w2" => heuristic(MlpDown, "w2_llama_convention_down"),
+        _ => None,
+    };
+    if unconditional.is_some() || parts.in_attention {
+        return unconditional;
     }
-    if parts.in_feed_forward && !parts.in_attention {
-        match c {
-            "c_proj" => return exact(MlpDown, "down_proj_name"),
-            "dense" if parts.parent() == "intermediate" => {
-                return heuristic(MlpUp, "bert_intermediate_dense");
-            }
-            "dense" if parts.has_segment("output") => {
-                return heuristic(MlpDown, "bert_output_dense");
-            }
-            _ => {}
+    match c {
+        "c_proj" if parts.in_feed_forward => exact(MlpDown, "down_proj_name"),
+        "dense" if parts.parent() == "intermediate" => heuristic(MlpUp, "bert_intermediate_dense"),
+        // BERT-style `layer.N.output.dense` has no mlp marker at all.
+        "dense" if parts.parent() == "output" || parts.has_segment("output") => {
+            heuristic(MlpDown, "bert_output_dense")
         }
+        _ => None,
     }
-    // BERT-style `layer.N.output.dense` has no mlp marker at all.
-    if c == "dense" && parts.parent() == "output" && !parts.in_attention {
-        return heuristic(MlpDown, "bert_output_dense");
-    }
-
-    Outcome::Unknown
 }
 
 #[cfg(test)]
@@ -710,11 +794,69 @@ mod tests {
             role_of("model.layers.0.mlp.shared_expert.down_proj.weight"),
             (MlpDown, SharedExpert, RoleConfidence::Exact)
         );
-        assert!(names_expert_tensor("blk.0.ffn_gate_exps.weight"));
-        assert!(names_expert_tensor(
-            "model.layers.0.mlp.experts.3.up_proj.weight"
-        ));
-        assert!(!names_expert_tensor("model.layers.0.mlp.up_proj.weight"));
+        assert!(name_facts("blk.0.ffn_gate_exps.weight").names_expert_tensor);
+        assert!(name_facts("model.layers.0.mlp.experts.3.up_proj.weight").names_expert_tensor);
+        assert!(!name_facts("model.layers.0.mlp.up_proj.weight").names_expert_tensor);
+    }
+
+    #[test]
+    fn gguf_per_expert_conventions() {
+        use RoleScope::*;
+        use TensorRole::*;
+        // Dot-delimited: blk.B.ffn_ROLE.E.weight
+        let a = classify_tensor(
+            &info("blk.1.ffn_gate.3.weight", &[8, 8]),
+            ClassifyContext::default(),
+        );
+        assert_eq!(
+            (a.role, a.scope, a.confidence),
+            (MlpGate, Expert(3), RoleConfidence::Exact)
+        );
+        assert_eq!(a.layer, Some(1));
+        assert_eq!(a.param, ParamKind::Weight);
+        // Underscore-delimited: blk.B.ffn_ROLE_E.weight
+        let b = classify_tensor(
+            &info("blk.1.ffn_down_12.weight", &[8, 8]),
+            ClassifyContext::default(),
+        );
+        assert_eq!((b.role, b.scope), (MlpDown, Expert(12)));
+        assert!(name_facts("blk.1.ffn_up.0.weight").names_expert_tensor);
+        assert!(name_facts("blk.1.ffn_up_0.weight").names_expert_tensor);
+        // Stacked and router names are untouched by the split.
+        assert_eq!(role_of("blk.1.ffn_gate_inp.weight").0, MoeRouter);
+        assert_eq!(role_of("blk.1.ffn_gate_exps.weight").1, StackedExperts);
+        // A numeric tail after a non-ffn component is not an expert index.
+        let c = classify_tensor(
+            &info("blk.1.attn_q.3.weight", &[8]),
+            ClassifyContext::default(),
+        );
+        assert_eq!(c.role, Unknown);
+        assert_eq!(c.scope, Layer);
+    }
+
+    #[test]
+    fn layer_stack_prefix_is_recorded() {
+        let a = classify_tensor(
+            &info("model.layers.4.self_attn.q_proj.weight", &[8, 8]),
+            ClassifyContext::default(),
+        );
+        assert_eq!(a.stack.as_deref(), Some("model.layers"));
+        assert_eq!(a.layer, Some(4));
+        let b = classify_tensor(
+            &info("visual.blocks.4.attn.qkv.weight", &[8, 8]),
+            ClassifyContext::default(),
+        );
+        assert_eq!(b.stack.as_deref(), Some("visual.blocks"));
+        let c = classify_tensor(
+            &info("blk.0.attn_q.weight", &[8, 8]),
+            ClassifyContext::default(),
+        );
+        assert_eq!(c.stack.as_deref(), Some("blk"));
+        let d = classify_tensor(
+            &info("token_embd.weight", &[8, 8]),
+            ClassifyContext::default(),
+        );
+        assert_eq!(d.stack, None);
     }
 
     #[test]
@@ -802,6 +944,26 @@ mod tests {
     }
 
     #[test]
+    fn reused_projection_names_need_attention_context() {
+        use TensorRole::*;
+        // Mamba / SSM mixers reuse `in_proj` / `out_proj`: never attention.
+        assert_eq!(role_of("backbone.layers.0.mixer.in_proj.weight").0, Unknown);
+        assert_eq!(
+            role_of("backbone.layers.0.mixer.out_proj.weight").0,
+            Unknown
+        );
+        // Under an attention segment they are attention projections.
+        assert_eq!(
+            role_of("model.layers.0.self_attn.in_proj.weight").0,
+            AttentionQkv
+        );
+        assert_eq!(
+            role_of("model.layers.0.attn.out_proj.weight").0,
+            AttentionOutput
+        );
+    }
+
+    #[test]
     fn unknown_names_stay_unknown() {
         let a = classify_tensor(
             &info("blk.0.mystery.weight", &[4]),
@@ -838,5 +1000,13 @@ mod tests {
         // A one-segment name is never stripped to nothing.
         let c = classify_tensor(&info("weight", &[4]), ClassifyContext::default());
         assert_eq!(c.role, TensorRole::Unknown);
+    }
+
+    #[test]
+    fn display_honors_width_and_alignment() {
+        assert_eq!(format!("{:<12}|", TensorRole::MlpUp), "mlp_up      |");
+        assert_eq!(format!("{:>8}|", ParamKind::Bias), "    bias|");
+        assert_eq!(format!("{:<10}|", RoleConfidence::Exact), "exact     |");
+        assert_eq!(format!("{:<12}|", RoleScope::Expert(7)), "expert[7]   |");
     }
 }
