@@ -162,6 +162,8 @@ pub use gguf::{
     GgufMetadata,
     ParseLimits,
     Tensor,
+    bf16_bits_to_f32,
+    dequantize_bf16_bytes,
     dequantize_iq3_m,
     dequantize_packed,
     dequantize_q5_k,

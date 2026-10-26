@@ -155,8 +155,8 @@ pub fn ggml_type_label(ggml_type: u32) -> &'static str {
 ///
 /// Values mirror the `GGML_TYPE_*` constants in `ggml.h`. The parser
 /// understands their byte layout (for bounds checking) but performs no
-/// arithmetic — raw bytes are returned as-is. `BF16` layout parsing is
-/// supported even though no BF16→F32 conversion is provided.
+/// arithmetic — raw bytes are returned as-is. `BF16` widens to `f32` via
+/// [`Tensor::dequantize_bf16`] / [`dequantize_bf16_bytes`].
 ///
 /// Types not explicitly enumerated are captured by [`DType::Other`]
 /// which preserves the raw code for callers to dispatch on.
@@ -580,6 +580,66 @@ impl Tensor {
             .collect();
         Ok(out)
     }
+
+    /// Decode a BF16 tensor into a newly-allocated `Vec<f32>` (lossless
+    /// widening; see [`bf16_bits_to_f32`]).
+    pub fn dequantize_bf16(&self, bytes: &[u8]) -> Result<Vec<f32>> {
+        if self.dtype != DType::BF16 {
+            return Err(ParserError::UnsupportedFormat {
+                path: self.name.clone(),
+                reason: format!("dequantize_bf16 called on dtype {:?}", self.dtype),
+            });
+        }
+        let expected =
+            self.n_elements
+                .checked_mul(2)
+                .ok_or_else(|| ParserError::InvalidLayout {
+                    path: self.name.clone(),
+                    reason: "bf16 element-count overflow".into(),
+                })?;
+        if bytes.len() != expected {
+            return Err(ParserError::InvalidLayout {
+                path: self.name.clone(),
+                reason: format!(
+                    "bf16 byte-length mismatch: bytes={}, expected={expected}",
+                    bytes.len()
+                ),
+            });
+        }
+        dequantize_bf16_bytes(bytes).map_err(|e| match e {
+            ParserError::InvalidLayout { reason, .. } => ParserError::InvalidLayout {
+                path: self.name.clone(),
+                reason,
+            },
+            other => other,
+        })
+    }
+}
+
+/// Widen a bfloat16 (as raw bits) to `f32`. Lossless: BF16 is the top 16 bits
+/// of an `f32`, so NaN payloads, signed zeros, infinities, and subnormals are
+/// preserved bit-for-bit.
+#[inline]
+pub fn bf16_bits_to_f32(bits: u16) -> f32 {
+    f32::from_bits((bits as u32) << 16)
+}
+
+/// Widen little-endian BF16 bytes (GGUF or Safetensors payload) to `f32`.
+///
+/// Rejects odd byte lengths. Callers that know the expected element count
+/// should check it themselves (or use [`Tensor::dequantize_bf16`]).
+pub fn dequantize_bf16_bytes(bytes: &[u8]) -> Result<Vec<f32>> {
+    let (chunks, remainder) = bytes.as_chunks::<2>();
+    if !remainder.is_empty() {
+        return Err(ParserError::InvalidLayout {
+            path: String::new(),
+            reason: format!("bf16 byte length {} is not a multiple of 2", bytes.len()),
+        });
+    }
+    Ok(chunks
+        .iter()
+        .map(|&chunk| bf16_bits_to_f32(u16::from_le_bytes(chunk)))
+        .collect())
 }
 
 /// Convert a 16-bit IEEE-754 half-precision float (as raw bits) into a
@@ -955,6 +1015,75 @@ mod tests {
             -(2f32.powi(-24)),
             "negative denormal 0x8001"
         );
+    }
+
+    fn bf16_tensor(n: usize) -> Tensor {
+        Tensor {
+            name: "t".into(),
+            dims: vec![n],
+            dtype: DType::BF16,
+            ggml_type: GGML_TYPE_BF16,
+            n_elements: n,
+            byte_len: n * 2,
+            relative_offset: 0,
+            absolute_offset: 0,
+        }
+    }
+
+    #[test]
+    fn bf16_widening_normals_zeros_inf() {
+        assert_eq!(bf16_bits_to_f32(0x3F80), 1.0);
+        assert_eq!(bf16_bits_to_f32(0xBF80), -1.0);
+        assert_eq!(bf16_bits_to_f32(0x4049), f32::from_bits(0x4049_0000));
+        let pz = bf16_bits_to_f32(0x0000);
+        let nz = bf16_bits_to_f32(0x8000);
+        assert!(pz == 0.0 && pz.is_sign_positive());
+        assert!(nz == 0.0 && nz.is_sign_negative());
+        assert_eq!(bf16_bits_to_f32(0x7F80), f32::INFINITY);
+        assert_eq!(bf16_bits_to_f32(0xFF80), f32::NEG_INFINITY);
+    }
+
+    #[test]
+    fn bf16_widening_nan_payload_preserved() {
+        for bits in [0x7FC0u16, 0xFFC1, 0x7F81, 0xFF81] {
+            let v = bf16_bits_to_f32(bits);
+            assert!(v.is_nan(), "{bits:#06X}");
+            assert_eq!(v.to_bits(), (bits as u32) << 16);
+        }
+    }
+
+    #[test]
+    fn bf16_widening_subnormals() {
+        // 2^-133, built from bits: `powi(-133)` overflows its intermediate on
+        // some platforms (1 / 2^133 > f32::MAX) and yields 0.
+        const TINY: f32 = f32::from_bits(0x0001_0000);
+        assert_eq!(bf16_bits_to_f32(0x0001).to_bits(), 0x0001_0000);
+        assert_eq!(bf16_bits_to_f32(0x0001), TINY);
+        assert_eq!(bf16_bits_to_f32(0x007F), 127.0 * TINY);
+        assert_eq!(bf16_bits_to_f32(0x8001), -(TINY));
+    }
+
+    #[test]
+    fn bf16_tensor_dequantize_and_length_checks() {
+        let bytes: Vec<u8> = [0x3F80u16, 0xC000, 0x0000]
+            .iter()
+            .flat_map(|b| b.to_le_bytes())
+            .collect();
+        let t = bf16_tensor(3);
+        assert_eq!(t.dequantize_bf16(&bytes).unwrap(), vec![1.0, -2.0, 0.0]);
+        assert!(t.dequantize_bf16(&bytes[..5]).is_err(), "odd length");
+        assert!(t.dequantize_bf16(&bytes[..4]).is_err(), "short");
+        assert!(bf16_tensor(2).dequantize_bf16(&bytes).is_err(), "long");
+        let mut f16 = bf16_tensor(3);
+        f16.dtype = DType::F16;
+        assert!(f16.dequantize_bf16(&bytes).is_err(), "wrong dtype");
+    }
+
+    #[test]
+    fn bf16_bytes_rejects_odd_length() {
+        assert!(dequantize_bf16_bytes(&[0x80, 0x3F, 0x00]).is_err());
+        assert_eq!(dequantize_bf16_bytes(&[]).unwrap(), Vec::<f32>::new());
+        assert_eq!(dequantize_bf16_bytes(&[0x80, 0x3F]).unwrap(), vec![1.0]);
     }
 
     #[test]

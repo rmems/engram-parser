@@ -36,7 +36,7 @@ pub use tensor::{
     GGML_TYPE_IQ4_NL, GGML_TYPE_IQ4_XS, GGML_TYPE_Q2_K, GGML_TYPE_Q3_K, GGML_TYPE_Q4_0,
     GGML_TYPE_Q4_0_4_4, GGML_TYPE_Q4_1, GGML_TYPE_Q4_K, GGML_TYPE_Q5_0, GGML_TYPE_Q5_1,
     GGML_TYPE_Q5_K, GGML_TYPE_Q6_K, GGML_TYPE_Q8_0, GGML_TYPE_Q8_1, GGML_TYPE_Q8_K, Tensor,
-    f16_bits_to_f32, ggml_type_label,
+    bf16_bits_to_f32, dequantize_bf16_bytes, f16_bits_to_f32, ggml_type_label,
 };
 
 // Re-export metadata value type constants for public API.
