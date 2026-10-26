@@ -1054,10 +1054,13 @@ mod tests {
 
     #[test]
     fn bf16_widening_subnormals() {
+        // 2^-133, built from bits: `powi(-133)` overflows its intermediate on
+        // some platforms (1 / 2^133 > f32::MAX) and yields 0.
+        const TINY: f32 = f32::from_bits(0x0001_0000);
         assert_eq!(bf16_bits_to_f32(0x0001).to_bits(), 0x0001_0000);
-        assert_eq!(bf16_bits_to_f32(0x0001), 2f32.powi(-133));
-        assert_eq!(bf16_bits_to_f32(0x007F), 127.0 * 2f32.powi(-133));
-        assert_eq!(bf16_bits_to_f32(0x8001), -(2f32.powi(-133)));
+        assert_eq!(bf16_bits_to_f32(0x0001), TINY);
+        assert_eq!(bf16_bits_to_f32(0x007F), 127.0 * TINY);
+        assert_eq!(bf16_bits_to_f32(0x8001), -(TINY));
     }
 
     #[test]
