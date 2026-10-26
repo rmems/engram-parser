@@ -4,6 +4,32 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Transformer topology discovery ([RM-1785](https://linear.app/rpd-34/issue/RM-1785) / #88):**
+  new `analysis::transformer` module (default features, zero dependencies).
+  `discover_topology(&dyn Checkpoint)` / `discover_topology_from_parts`
+  classify every tensor of a GGUF or Safetensors inventory into a
+  `TensorRole` (token/position embedding, output head/norm, attention
+  norm/Q/K/V/fused-QKV/O/Q-norm/K-norm, MLP norm/gate/up/down/fused
+  gate-up, MoE router, rotary frequencies, unknown) with a `RoleScope`
+  (global, layer, `Expert(i)`, stacked experts, shared expert), a
+  `ParamKind`, a `RoleConfidence` (exact / heuristic / ambiguous /
+  unknown), listed `alternatives` for ambiguous names, and evidence
+  strings. Layers assemble into `TransformerTopology` → `LayerTopology`
+  (`AttentionKind`, `FeedForwardKind`, router / expert-count /
+  shared-expert flags) plus a `TopologySummary` (role and confidence
+  counts, missing layers, hidden/vocab/tied-embedding hints). MoE roles
+  reuse the dense MLP roles under an expert scope, so dense and MoE
+  checkpoints share one topology layer. Covers llama.cpp GGUF, Hugging
+  Face Llama / Mixtral / Qwen-MoE / Gemma-2, GPT-2, GPT-NeoX, original
+  Llama, and BERT naming. Output is order-independent and deterministic;
+  `Display` gives a text inventory and `to_json()` a dependency-free JSON
+  rendering. Unknown tensors stay `Unknown`; a bare `mlp.gate` stays
+  `Ambiguous` unless the checkpoint holds expert tensors or the shape is
+  router-like. Descriptive only: no forward pass, tokenizer, or
+  family-specific runtime policy. Adds the `transformer_topology` example.
+
 ### Changed
 
 - **Coverage CI ([RM-1951](https://linear.app/rpd-34/issue/RM-1951)):** the

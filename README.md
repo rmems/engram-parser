@@ -182,6 +182,26 @@ The off-by-default `safetensors` feature owns reusable support for:
 
 The `safetensors` feature adds the upstream `safetensors` crate as an optional dependency; upstream types (`SafeTensors`, `TensorView`, `Dtype`) never appear in the public API. Engram keeps checkpoint discovery, shard/path policy, duplicate-key detection, stricter contiguous-range validation, and engram-owned dtype/shape/shard types.
 
+### Shipped now — Transformer topology (format-independent)
+
+`engram_parser::analysis::transformer` reads the `Checkpoint` inventory (names, shapes, dtypes, scalar metadata) and reports a descriptive topology for dense **and** MoE Transformers:
+
+- per-tensor `TensorRole` (embeddings, attention Q/K/V/fused-QKV/O, norms, MLP gate/up/down, output head, MoE router, rotary tables) with `RoleScope` (global / layer / `Expert(i)` / stacked experts / shared expert);
+- per-layer `AttentionKind` and `FeedForwardKind` (separate vs fused QKV; gated / plain / fused / MoE), router and expert-count flags;
+- a `RoleConfidence` on every tensor: unknown names stay `Unknown`, family-dependent names stay `Ambiguous` with the candidate roles listed, convention-dependent mappings (`w1`/`w3`/`w2`) are `Heuristic` with evidence;
+- deterministic, order-independent output with `Display` text and a dependency-free `to_json()`.
+
+```rust
+use engram_parser::analysis::transformer::discover_topology;
+use engram_parser::open_checkpoint;
+
+let ckpt = open_checkpoint("model.gguf")?;
+let topo = discover_topology(&ckpt);
+println!("{topo}");
+```
+
+`cargo run --example transformer_topology -- [--json|--summary] <checkpoint>` prints the inventory. Works on GGUF and (with `--features safetensors`) Safetensors identically because it only sees the normalized contract. It never executes the model.
+
 ## What it does NOT do
 
 - No neural-network math: no `matmul`, forward pass, routing execution, or softmax.
@@ -221,6 +241,7 @@ Current GGUF surface includes:
 - `dequantize_f16` (on `Tensor`), `dequantize_q8_0`, `dequantize_q5_k`, `dequantize_q6_k`, `dequantize_iq3_m`;
 - `extract_expert`, `list_experts` (canonical: `engram_parser::analysis::moe`);
 - `MoeExpertWeights`, `RawTensor` (also at `engram_parser::analysis::moe`);
+- `analysis::transformer::{discover_topology, discover_topology_from_parts, classify_tensor}` with `TransformerTopology`, `LayerTopology`, `TopologySummary`, `RoleAssignment`, `TensorRole`, `RoleScope`, `ParamKind`, `RoleConfidence`, `AttentionKind`, `FeedForwardKind`, `ClassifyContext` (format-independent, default features);
 - `ParserError`, `ParseLimitKind`, `HostSizeField`, `Result`;
 - public `GGML_TYPE_*` / `GGUF_VALUE_TYPE_*` constants and the `ggml_type_label` label function.
 

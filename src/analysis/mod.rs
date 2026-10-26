@@ -8,14 +8,15 @@
 //! [`checkpoint`](crate::checkpoint) contract — not part of the core
 //! parsing substrate.
 //!
-//! Today this namespace holds a single specialization:
-//!
+//! - [`transformer`]: format-independent Transformer tensor-role and
+//!   topology discovery over the [`Checkpoint`](crate::checkpoint::Checkpoint)
+//!   contract. Dense attention/MLP/norm/embedding roles and MoE
+//!   router/expert roles share one topology layer; unknown and ambiguous
+//!   tensors stay representable. Descriptive only, no execution.
 //! - [`moe`]: Mixture-of-Experts expert enumeration and per-expert
 //!   raw-weight extraction. GGUF-specific: it operates on
 //!   [`GgufLayout`](crate::gguf::GgufLayout) and returns
 //!   GGUF-typed [`RawTensor`](moe::RawTensor) slices.
-//!
-//! Format-independent MoE/topology discovery (model roles, transformer
-//! structure) is deliberately *not* here yet — that is v0.4 work.
 
 pub mod moe;
+pub mod transformer;

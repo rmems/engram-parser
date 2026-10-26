@@ -18,7 +18,7 @@ compute** in this repo (CUDA host-register belongs to `myelin-accelerator`).
 | `src/gguf/` | GGUF header/KV/tensor-directory parsing, limits, dequant |
 | `src/safetensors/` | Safetensors support (`safetensors` feature) |
 | `src/checkpoint/` | Format-independent `Checkpoint` API |
-| `src/analysis/` | Model analysis (MoE) |
+| `src/analysis/` | Model analysis: `transformer/` (format-independent role/topology discovery), `moe/` (GGUF expert extraction) |
 | `tests/` (+ `tests/fixtures/`, `tests/common/`) | Integration tests (smoke, limits, mmap, parity matrix, public API surface) |
 | `examples/` | Usage examples |
 

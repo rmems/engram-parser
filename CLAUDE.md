@@ -34,8 +34,9 @@ commit generated files. Run fmt and clippy before committing.
 - `src/gguf/`: GGUF v3 parsing (`cursor.rs`, `layout.rs`, `tensor.rs`), `limits.rs` (`ParseLimits`), `map.rs` (mmap), `dequant.rs`.
 - `src/safetensors/`: manifest, discovery, payload access (feature `safetensors`).
 - `src/checkpoint/`: format-independent `Checkpoint` API over GGUF and Safetensors (`open.rs` picks the format).
+- `src/analysis/transformer/` (`role.rs`, `topology.rs`): format-independent tensor-role classification and per-layer Transformer topology over the `Checkpoint` contract; dense and MoE share one topology. Descriptive only; unknown/ambiguous roles must stay representable, never guessed.
 - `src/analysis/moe/` (`expert.rs`, `extract.rs`): MoE expert discovery and raw extraction. `src/moe/` is a legacy re-export shim of it; new code uses `analysis::moe`.
-- `examples/`: `inspect_gguf`, `inspect_checkpoint`, `checkpoint_smoke` (requires `mmap` and `safetensors`).
+- `examples/`: `inspect_gguf`, `inspect_checkpoint`, `transformer_topology`, `checkpoint_smoke` (requires `mmap` and `safetensors`).
 - `tests/`: integration tests; `tests/fixtures/` holds goldens; `real_gguf.rs` is `#[ignore]` and path-gated by `ENGRAM_*` env vars.
 - `REVIEW.md` is the pre-merge gate; `RELEASE.md` is the publication gate; `docs/` holds smoke-run notes.
 
