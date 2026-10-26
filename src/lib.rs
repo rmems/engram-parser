@@ -14,10 +14,13 @@
 //! surface for callers that need format semantics — GGML wire types,
 //! K-quant dequant, Safetensors manifests and MoE candidate discovery.
 //!
-//! Model-analysis specializations live under [`analysis`]. Today that
-//! is [`analysis::moe`]: per-expert raw-weight extraction over a parsed
-//! [`GgufLayout`]. MoE is one analysis specialization built above the
-//! parsers, not the identity of the crate.
+//! Model-analysis specializations live under [`analysis`]:
+//! [`analysis::transformer`] discovers tensor roles and layer topology
+//! (dense attention/MLP/norm/embedding plus MoE router/experts) from the
+//! normalized [`Checkpoint`] inventory of either format, and
+//! [`analysis::moe`] extracts per-expert raw weights over a parsed
+//! [`GgufLayout`]. Both are built above the parsers; neither is the
+//! identity of the crate.
 //!
 //! # Features
 //!
@@ -35,6 +38,11 @@
 //!   IQ3_M block layout. No GGML kernels, no ggml runtime, no CUDA.
 //! - **Type labels**: Human-readable names via [`ggml_type_label`] (maps the
 //!   on-wire `ggml_type` integer used by GGUF)
+//! - **Transformer topology**: [`analysis::transformer::discover_topology`]
+//!   classifies tensors into roles (embeddings, attention Q/K/V/O, MLP
+//!   gate/up/down, norms, output head, MoE router/experts) and assembles
+//!   a deterministic per-layer topology from either format's inventory.
+//!   Unknown and ambiguous tensors stay representable; nothing is executed.
 //! - **MoE analysis**: Extract expert **raw** weights (byte buffers + shape)
 //!   via [`analysis::moe`]; GGUF-specific.
 //! - **Metadata helpers**: Architecture-aware convenience methods for common fields

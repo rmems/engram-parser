@@ -62,7 +62,8 @@
 //! - **Errors.** Unknown names return [`crate::ParserError::MissingTensor`].
 //!
 //! This module has no numerical execution, device, or MoE concepts.
-//! Model topology and role discovery are out of scope.
+//! Model topology and role discovery build on top of it in
+//! [`crate::analysis::transformer`].
 
 use std::borrow::Cow;
 
