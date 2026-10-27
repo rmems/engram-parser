@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Package documentation link to docs.rs for the next crates.io release (RM-2268).
 - **BF16→F32 decode ([RM-2366](https://linear.app/rpd-34/issue/RM-2366) / #126):**
   `Tensor::dequantize_bf16`, `bf16_bits_to_f32`, `dequantize_bf16_bytes`
   (Safetensors `BF16` payloads; rejects odd lengths), and
