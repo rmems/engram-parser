@@ -6,6 +6,17 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- **Transformer component view ([RM-1799](https://linear.app/rpd-34/issue/RM-1799)):**
+  `TransformerTopology::components()` builds a facts-only
+  [`TransformerComponents`] inventory: global and per-layer
+  [`Component`] groups (embeddings, output head, final norm, attention
+  block, norms, MLP block, MoE router, routed/stacked/shared experts)
+  with member roles, shapes, dtypes, parameter counts,
+  dense-vs-conditional flags, router/gate markers, and weakest member
+  confidence. Unknown and ambiguous tensors stay in
+  [`UnclassifiedTensor`] entries. [`TransformerComponents::to_json`]
+  emits deterministic JSON; golden snapshots cover dense and MoE GGUF
+  layouts.
 - **BF16→F32 decode ([RM-2366](https://linear.app/rpd-34/issue/RM-2366) / #126):**
   `Tensor::dequantize_bf16`, `bf16_bits_to_f32`, `dequantize_bf16_bytes`
   (Safetensors `BF16` payloads; rejects odd lengths), and
