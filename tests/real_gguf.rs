@@ -418,7 +418,7 @@ fn real_gguf_helpers_document_env() {
 /// Decode the first token-embedding rows of each pilot file whose
 /// `token_embd.weight` dtype has a packed decoder; every value must be finite.
 /// Files with other dtypes (F32/F16/...) are skipped, but at least one file
-/// must decode or the test fails.
+/// must decode at least one row or the test fails.
 #[test]
 #[ignore = "pilot: set ENGRAM_GGUF or ENGRAM_MODEL_DIR; not run in CI"]
 fn real_gguf_token_rows_dequant_finite() {
@@ -454,11 +454,11 @@ fn real_gguf_token_rows_dequant_finite() {
             path.display(),
             t.dtype.label()
         );
-        decoded += 1;
+        decoded += n_rows;
     }
     assert!(
         decoded > 0,
-        "no pilot file had a packed-dtype token_embd.weight to decode"
+        "no pilot file had a packed-dtype token_embd.weight row to decode"
     );
 }
 
