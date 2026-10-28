@@ -92,14 +92,16 @@ pub struct Component {
     /// Expert index for [`ComponentKind::RoutedExpert`].
     pub expert_index: Option<usize>,
     pub members: Vec<ComponentMember>,
-    /// Sum of element counts across member tensors.
+    /// Sum of element counts across member tensors; saturates at
+    /// `usize::MAX` rather than overflowing.
     pub parameter_count: usize,
-    /// `false` for dense/global/layer-scoped blocks; `true` for routed or
-    /// conditional MoE scopes and routers.
+    /// `false` for dense/global/layer-scoped blocks and always-on shared
+    /// experts; `true` for routers and routed (per-expert or stacked) experts.
     pub conditional: bool,
     /// `true` when the component is a router or holds a [`TensorRole::MoeRouter`].
     pub is_router: bool,
-    /// `true` when any member is a feed-forward gate projection.
+    /// `true` when any member is a feed-forward gate projection (separate
+    /// gate or fused gate-up).
     pub is_gate: bool,
     /// Least-trusted confidence among members.
     pub weakest_confidence: RoleConfidence,
@@ -236,123 +238,100 @@ fn build_global(
         .collect()
 }
 
+/// Tensors of one layer, bucketed by the component they belong to.
+#[derive(Default)]
+struct LayerBuckets<'a> {
+    attention: Vec<&'a RoleAssignment>,
+    norms: Vec<&'a RoleAssignment>,
+    mlp: Vec<&'a RoleAssignment>,
+    router: Vec<&'a RoleAssignment>,
+    stacked: Vec<&'a RoleAssignment>,
+    shared: Vec<&'a RoleAssignment>,
+    experts: BTreeMap<usize, Vec<&'a RoleAssignment>>,
+}
+
+impl<'a> LayerBuckets<'a> {
+    /// Place `t` in a bucket; `false` when no component can hold it.
+    fn push(&mut self, t: &'a RoleAssignment) -> bool {
+        match t.scope {
+            RoleScope::Expert(i) => self.experts.entry(i).or_default().push(t),
+            RoleScope::StackedExperts => self.stacked.push(t),
+            RoleScope::SharedExpert => self.shared.push(t),
+            RoleScope::Layer | RoleScope::Global => match layer_bucket(t.role) {
+                Some(LayerBucket::Router) => self.router.push(t),
+                Some(LayerBucket::Norms) => self.norms.push(t),
+                Some(LayerBucket::Attention) => self.attention.push(t),
+                Some(LayerBucket::Mlp) => self.mlp.push(t),
+                None => return false,
+            },
+        }
+        true
+    }
+
+    fn into_components(self, stack: &str, layer: usize) -> Vec<Component> {
+        let mut components = Vec::new();
+        let mut add = |kind, expert_index, members: Vec<&RoleAssignment>| {
+            if !members.is_empty() {
+                components.push(make_component(
+                    kind,
+                    Some(stack.to_owned()),
+                    Some(layer),
+                    expert_index,
+                    members,
+                ));
+            }
+        };
+        add(ComponentKind::AttentionBlock, None, self.attention);
+        add(ComponentKind::Norms, None, self.norms);
+        add(ComponentKind::MlpBlock, None, self.mlp);
+        add(ComponentKind::MoeRouter, None, self.router);
+        for (expert_index, members) in self.experts {
+            add(ComponentKind::RoutedExpert, Some(expert_index), members);
+        }
+        add(ComponentKind::StackedExperts, None, self.stacked);
+        add(ComponentKind::SharedExpert, None, self.shared);
+        components
+    }
+}
+
+#[derive(Clone, Copy)]
+enum LayerBucket {
+    Attention,
+    Norms,
+    Mlp,
+    Router,
+}
+
+/// Bucket for a layer-scoped (non-expert) role.
+fn layer_bucket(role: TensorRole) -> Option<LayerBucket> {
+    if role == TensorRole::MoeRouter {
+        Some(LayerBucket::Router)
+    } else if is_layer_norm(role) || role == TensorRole::RotaryFrequencies {
+        // Layer-local rotary tables are reported with norms.
+        Some(LayerBucket::Norms)
+    } else if role.is_attention() {
+        Some(LayerBucket::Attention)
+    } else if role.is_feed_forward() {
+        Some(LayerBucket::Mlp)
+    } else {
+        None
+    }
+}
+
 fn build_layer_components(
     layer: &LayerTopology,
     unclassified: &mut Vec<UnclassifiedTensor>,
 ) -> LayerComponents {
-    let stack = layer.stack.clone();
-    let index = layer.index;
-
-    let mut attention = Vec::new();
-    let mut norms = Vec::new();
-    let mut mlp = Vec::new();
-    let mut router = Vec::new();
-    let mut stacked = Vec::new();
-    let mut shared = Vec::new();
-    let mut experts: BTreeMap<usize, Vec<&RoleAssignment>> = BTreeMap::new();
-
+    let mut buckets = LayerBuckets::default();
     for t in &layer.tensors {
-        if is_unclassified(t) {
+        if is_unclassified(t) || !buckets.push(t) {
             unclassified.push(unclassified_from(t));
-            continue;
-        }
-        match t.scope {
-            RoleScope::Expert(i) => {
-                experts.entry(i).or_default().push(t);
-            }
-            RoleScope::StackedExperts => stacked.push(t),
-            RoleScope::SharedExpert => shared.push(t),
-            RoleScope::Layer | RoleScope::Global => {
-                if t.role == TensorRole::MoeRouter {
-                    router.push(t);
-                } else if is_layer_norm(t.role) {
-                    norms.push(t);
-                } else if t.role.is_attention() {
-                    attention.push(t);
-                } else if t.role.is_feed_forward() && t.role != TensorRole::MoeRouter {
-                    mlp.push(t);
-                } else if t.role == TensorRole::RotaryFrequencies {
-                    // Layer-local rotary tables are reported with norms.
-                    norms.push(t);
-                } else {
-                    unclassified.push(unclassified_from(t));
-                }
-            }
         }
     }
-
-    let mut components = Vec::new();
-    let layer_opt = Some(index);
-    let stack_opt = Some(stack.clone());
-
-    if !attention.is_empty() {
-        components.push(make_component(
-            ComponentKind::AttentionBlock,
-            stack_opt.clone(),
-            layer_opt,
-            None,
-            attention,
-        ));
-    }
-    if !norms.is_empty() {
-        components.push(make_component(
-            ComponentKind::Norms,
-            stack_opt.clone(),
-            layer_opt,
-            None,
-            norms,
-        ));
-    }
-    if !mlp.is_empty() {
-        components.push(make_component(
-            ComponentKind::MlpBlock,
-            stack_opt.clone(),
-            layer_opt,
-            None,
-            mlp,
-        ));
-    }
-    if !router.is_empty() {
-        components.push(make_component(
-            ComponentKind::MoeRouter,
-            stack_opt.clone(),
-            layer_opt,
-            None,
-            router,
-        ));
-    }
-    for (expert_index, members) in experts {
-        components.push(make_component(
-            ComponentKind::RoutedExpert,
-            stack_opt.clone(),
-            layer_opt,
-            Some(expert_index),
-            members,
-        ));
-    }
-    if !stacked.is_empty() {
-        components.push(make_component(
-            ComponentKind::StackedExperts,
-            stack_opt.clone(),
-            layer_opt,
-            None,
-            stacked,
-        ));
-    }
-    if !shared.is_empty() {
-        components.push(make_component(
-            ComponentKind::SharedExpert,
-            stack_opt,
-            layer_opt,
-            None,
-            shared,
-        ));
-    }
-
     LayerComponents {
-        stack,
-        index,
-        components,
+        components: buckets.into_components(&layer.stack, layer.index),
+        stack: layer.stack.clone(),
+        index: layer.index,
     }
 }
 
@@ -419,22 +398,25 @@ fn make_component(
             dtype: t.dtype.clone(),
         })
         .collect();
-    let parameter_count = member_records
-        .iter()
-        .map(|m| m.dims.iter().product::<usize>())
-        .sum();
+    // Saturating: unchecked caller-supplied shapes must not panic or wrap.
+    let parameter_count = member_records.iter().fold(0usize, |total, m| {
+        let elements = m.dims.iter().fold(1usize, |n, &d| n.saturating_mul(d));
+        total.saturating_add(elements)
+    });
+    // Shared experts are always-on, so they are not conditional.
     let conditional = matches!(
         kind,
-        ComponentKind::MoeRouter
-            | ComponentKind::RoutedExpert
-            | ComponentKind::StackedExperts
-            | ComponentKind::SharedExpert
-    ) || member_records.iter().any(|m| m.scope.is_moe());
+        ComponentKind::MoeRouter | ComponentKind::RoutedExpert | ComponentKind::StackedExperts
+    ) || member_records
+        .iter()
+        .any(|m| matches!(m.scope, RoleScope::Expert(_) | RoleScope::StackedExperts));
     let is_router = kind == ComponentKind::MoeRouter
         || member_records
             .iter()
             .any(|m| m.role == TensorRole::MoeRouter);
-    let is_gate = member_records.iter().any(|m| m.role == TensorRole::MlpGate);
+    let is_gate = member_records
+        .iter()
+        .any(|m| matches!(m.role, TensorRole::MlpGate | TensorRole::MlpGateUp));
     let weakest_confidence = member_records
         .iter()
         .map(|m| m.confidence)
@@ -598,6 +580,42 @@ mod tests {
         );
         assert!(view.layers[0].components[0].is_router);
         assert!(view.layers[0].components[1].conditional);
+        assert!(!view.layers[0].components[2].conditional);
+    }
+
+    #[test]
+    fn fused_gate_up_reports_is_gate() {
+        let inv = vec![mock("blk.0.ffn_gate_up.weight", &[8, 32])];
+        let topo = discover_topology_from_parts(&inv, &CheckpointMetadata::new());
+        let view = topo.components();
+        let mlp = &view.layers[0].components[0];
+        assert_eq!(mlp.kind, ComponentKind::MlpBlock);
+        assert_eq!(mlp.members[0].role, TensorRole::MlpGateUp);
+        assert!(mlp.is_gate);
+    }
+
+    #[test]
+    fn parameter_count_saturates_instead_of_overflowing() {
+        let huge = 1usize << 40;
+        let inv = vec![
+            TensorInfo::new(
+                "blk.0.attn_q.weight",
+                TensorDType::F32,
+                TensorShape::outermost_first(vec![huge, huge, 0]),
+                0,
+                TensorLocation::new("model", 0, None),
+            ),
+            TensorInfo::new(
+                "blk.0.attn_k.weight",
+                TensorDType::F32,
+                TensorShape::outermost_first(vec![huge, huge]),
+                0,
+                TensorLocation::new("model", 0, None),
+            ),
+        ];
+        let topo = discover_topology_from_parts(&inv, &CheckpointMetadata::new());
+        let view = topo.components();
+        assert_eq!(view.layers[0].components[0].parameter_count, usize::MAX);
     }
 
     #[test]
