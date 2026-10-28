@@ -9,7 +9,7 @@
 
 Pure-Rust **GGUF + Safetensors checkpoint/tensor substrate** with optional format-specific helpers and model-analysis modules.
 
-`engram-parser` ships a format-independent `Checkpoint` API over GGUF v3 and Safetensors: tensor inventory, metadata, and raw payload access without branching on container format. Format-specific surfaces remain for callers that need them: GGUF wire types and packed K-quant dequant (Q8_0 / Q5_K / Q6_K / IQ3_M block layout), an optional `mmap` reader, and Safetensors header/manifest/MoE discovery — the latter behind the off-by-default `safetensors` Cargo feature, which uses the upstream `safetensors` crate for canonical validation. MoE per-expert raw-weight extraction is a GGUF-specific model-analysis specialization under `engram_parser::analysis::moe`.
+`engram-parser` ships a format-independent `Checkpoint` API over GGUF v3 and Safetensors: tensor inventory, metadata, and raw payload access without branching on container format. Format-specific surfaces remain for callers that need them: GGUF wire types and packed dequant (Q4_0 / Q4_1 / Q8_0 / Q2_K / Q3_K / Q4_K / Q5_K / Q6_K / IQ3_M block layout), an optional `mmap` reader, and Safetensors header/manifest/MoE discovery — the latter behind the off-by-default `safetensors` Cargo feature, which uses the upstream `safetensors` crate for canonical validation. MoE per-expert raw-weight extraction is a GGUF-specific model-analysis specialization under `engram_parser::analysis::moe`.
 
 > **Safetensors status:** shipped behind `--features safetensors`. Default builds are GGUF-only. Raw payload reads are bounded per-tensor; enable `--features safetensors,mmap` for borrowed mmap-backed access. No Hugging Face `config.json` policy.
 >
