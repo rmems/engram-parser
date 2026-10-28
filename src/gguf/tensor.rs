@@ -12,7 +12,7 @@
 //! GGUF stores each tensor’s dtype as a `ggml_type` `u32`. The
 //! `GGML_TYPE_*` constants mirror that table (same numbers as `ggml.h`)
 //! so we can label types and compute **packed byte lengths**. Packed
-//! dequant for Q8_0/Q5_K/Q6_K/IQ3_M lives in [`super::dequant`].
+//! dequant for Q4_0/Q4_1/Q8_0/Q2_K/Q3_K/Q4_K/Q5_K/Q6_K/IQ3_M lives in [`super::dequant`].
 //! [`ggml_type_label`] maps any `u32` code to a short diagnostic string.
 
 use crate::error::{ParserError, Result};
