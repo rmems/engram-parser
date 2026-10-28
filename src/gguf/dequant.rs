@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Packed-block dequantization for Q8_0, Q5_K, Q6_K, and IQ3_M.
+//! Packed-block dequantization for Q4_0, Q4_1, Q2_K, Q3_K, Q4_K, Q8_0, Q5_K, Q6_K, and IQ3_M.
 //!
 //! These helpers operate on already-sliced packed bytes (owned `Vec<u8>` or
 //! mmap-backed `&[u8]`). They perform no CUDA / host-register work.
@@ -11,13 +11,20 @@
 //! [`super::tensor::GGML_TYPE_IQ3_M_BLOCK`].
 
 use super::tensor::{
-    DType, GGML_TYPE_IQ3_M_BLOCK, GGML_TYPE_Q5_K, GGML_TYPE_Q6_K, GGML_TYPE_Q8_0,
-    dequantize_bf16_bytes, f16_bits_to_f32,
+    DType, GGML_TYPE_IQ3_M_BLOCK, GGML_TYPE_Q2_K, GGML_TYPE_Q3_K, GGML_TYPE_Q4_0, GGML_TYPE_Q4_1,
+    GGML_TYPE_Q4_K, GGML_TYPE_Q5_K, GGML_TYPE_Q6_K, GGML_TYPE_Q8_0, dequantize_bf16_bytes,
+    f16_bits_to_f32,
 };
 use crate::error::{ParserError, Result};
 
 const Q8_0_BLOCK: usize = 32;
 const Q8_0_BYTES: usize = 34;
+const Q4_0_BLOCK: usize = 32;
+const Q4_0_BYTES: usize = 18;
+const Q4_1_BYTES: usize = 20;
+const Q2_K_BYTES: usize = 84;
+const Q3_K_BYTES: usize = 110;
+const Q4_K_BYTES: usize = 144;
 const K_BLOCK: usize = 256;
 const Q5_K_BYTES: usize = 176;
 const Q6_K_BYTES: usize = 210;
@@ -26,6 +33,11 @@ const IQ3_M_BYTES: usize = 111;
 /// Packed byte length of one row for a blocked quant dtype.
 pub fn packed_row_size(ggml_type: u32, width: usize) -> Result<usize> {
     match ggml_type {
+        GGML_TYPE_Q4_0 => row_size_for_block(width, Q4_0_BLOCK, Q4_0_BYTES, "Q4_0"),
+        GGML_TYPE_Q4_1 => row_size_for_block(width, Q4_0_BLOCK, Q4_1_BYTES, "Q4_1"),
+        GGML_TYPE_Q2_K => row_size_for_block(width, K_BLOCK, Q2_K_BYTES, "Q2_K"),
+        GGML_TYPE_Q3_K => row_size_for_block(width, K_BLOCK, Q3_K_BYTES, "Q3_K"),
+        GGML_TYPE_Q4_K => row_size_for_block(width, K_BLOCK, Q4_K_BYTES, "Q4_K"),
         GGML_TYPE_Q8_0 => row_size_for_block(width, Q8_0_BLOCK, Q8_0_BYTES, "Q8_0"),
         GGML_TYPE_Q5_K => row_size_for_block(width, K_BLOCK, Q5_K_BYTES, "Q5_K"),
         GGML_TYPE_Q6_K => row_size_for_block(width, K_BLOCK, Q6_K_BYTES, "Q6_K"),
@@ -34,6 +46,66 @@ pub fn packed_row_size(ggml_type: u32, width: usize) -> Result<usize> {
             "row-size lookup is not implemented for ggml_type={other}"
         ))),
     }
+}
+
+/// Dequantize packed Q4_0 bytes to `f32`.
+pub fn dequantize_q4_0(packed: &[u8], dims: &[usize]) -> Result<Vec<f32>> {
+    dequantize_rows(
+        packed,
+        dims,
+        Q4_0_BLOCK,
+        Q4_0_BYTES,
+        "Q4_0",
+        dequantize_row_q4_0,
+    )
+}
+
+/// Dequantize packed Q4_1 bytes to `f32`.
+pub fn dequantize_q4_1(packed: &[u8], dims: &[usize]) -> Result<Vec<f32>> {
+    dequantize_rows(
+        packed,
+        dims,
+        Q4_0_BLOCK,
+        Q4_1_BYTES,
+        "Q4_1",
+        dequantize_row_q4_1,
+    )
+}
+
+/// Dequantize packed Q2_K bytes to `f32`.
+pub fn dequantize_q2_k(packed: &[u8], dims: &[usize]) -> Result<Vec<f32>> {
+    dequantize_rows(
+        packed,
+        dims,
+        K_BLOCK,
+        Q2_K_BYTES,
+        "Q2_K",
+        dequantize_row_q2_k,
+    )
+}
+
+/// Dequantize packed Q3_K bytes to `f32`.
+pub fn dequantize_q3_k(packed: &[u8], dims: &[usize]) -> Result<Vec<f32>> {
+    dequantize_rows(
+        packed,
+        dims,
+        K_BLOCK,
+        Q3_K_BYTES,
+        "Q3_K",
+        dequantize_row_q3_k,
+    )
+}
+
+/// Dequantize packed Q4_K bytes to `f32`.
+pub fn dequantize_q4_k(packed: &[u8], dims: &[usize]) -> Result<Vec<f32>> {
+    dequantize_rows(
+        packed,
+        dims,
+        K_BLOCK,
+        Q4_K_BYTES,
+        "Q4_K",
+        dequantize_row_q4_k,
+    )
 }
 
 /// Dequantize packed Q8_0 bytes (block size 32) to `f32`.
@@ -94,6 +166,11 @@ pub fn dequantize_iq3_m(packed: &[u8], dims: &[usize]) -> Result<Vec<f32>> {
 /// without updating this match is a compile error.
 pub fn dequantize_packed(dtype: DType, packed: &[u8], dims: &[usize]) -> Result<Vec<f32>> {
     match dtype {
+        DType::Q4_0 => dequantize_q4_0(packed, dims),
+        DType::Q4_1 => dequantize_q4_1(packed, dims),
+        DType::Q2_K => dequantize_q2_k(packed, dims),
+        DType::Q3_K => dequantize_q3_k(packed, dims),
+        DType::Q4_K => dequantize_q4_k(packed, dims),
         DType::Q8_0 => dequantize_q8_0(packed, dims),
         DType::Q5_K => dequantize_q5_k(packed, dims),
         DType::Q6_K => dequantize_q6_k(packed, dims),
@@ -124,19 +201,23 @@ fn fail_closed_dequant(dtype: DType) -> ParserError {
     // compile. The `never` binding documents the fail-closed default.
     let unknown: DType = dtype;
     match unknown {
-        DType::Q8_0 | DType::Q5_K | DType::Q6_K | DType::IQ3_M_BLOCK | DType::BF16 => {
+        DType::Q4_0
+        | DType::Q4_1
+        | DType::Q2_K
+        | DType::Q3_K
+        | DType::Q4_K
+        | DType::Q8_0
+        | DType::Q5_K
+        | DType::Q6_K
+        | DType::IQ3_M_BLOCK
+        | DType::BF16 => {
             unreachable!("handled by dequantize_packed")
         }
         DType::F32
         | DType::F16
-        | DType::Q4_0
-        | DType::Q4_1
         | DType::Q5_0
         | DType::Q5_1
         | DType::Q8_1
-        | DType::Q2_K
-        | DType::Q3_K
-        | DType::Q4_K
         | DType::Q8_K
         | DType::IQ2_XXS
         | DType::IQ2_XS
@@ -158,6 +239,141 @@ fn fail_closed_dequant(dtype: DType) -> ParserError {
             unknown.ggml_type()
         )),
     }
+}
+
+pub(crate) fn dequantize_row_q4_0(row: &[u8], width: usize) -> Result<Vec<f32>> {
+    require_multiple(width, Q4_0_BLOCK, "Q4_0")?;
+    expect_row_len(row, width, Q4_0_BLOCK, Q4_0_BYTES, "Q4_0")?;
+    let mut out = Vec::with_capacity(width);
+    let (blocks, _) = row.as_chunks::<Q4_0_BYTES>();
+    for block in blocks {
+        let d = f16_bits_to_f32(u16::from_le_bytes([block[0], block[1]]));
+        let qs = &block[2..];
+        // ggml writes 16 low nibbles, then 16 high nibbles.
+        out.extend(qs.iter().map(|&q| ((q & 0x0F) as i32 - 8) as f32 * d));
+        out.extend(qs.iter().map(|&q| ((q >> 4) as i32 - 8) as f32 * d));
+    }
+    Ok(out)
+}
+
+pub(crate) fn dequantize_row_q4_1(row: &[u8], width: usize) -> Result<Vec<f32>> {
+    require_multiple(width, Q4_0_BLOCK, "Q4_1")?;
+    expect_row_len(row, width, Q4_0_BLOCK, Q4_1_BYTES, "Q4_1")?;
+    let mut out = Vec::with_capacity(width);
+    let (blocks, _) = row.as_chunks::<Q4_1_BYTES>();
+    for block in blocks {
+        let d = f16_bits_to_f32(u16::from_le_bytes([block[0], block[1]]));
+        let m = f16_bits_to_f32(u16::from_le_bytes([block[2], block[3]]));
+        let qs = &block[4..];
+        out.extend(qs.iter().map(|&q| (q & 0x0F) as f32 * d + m));
+        out.extend(qs.iter().map(|&q| (q >> 4) as f32 * d + m));
+    }
+    Ok(out)
+}
+
+pub(crate) fn dequantize_row_q2_k(row: &[u8], width: usize) -> Result<Vec<f32>> {
+    require_multiple(width, K_BLOCK, "Q2_K")?;
+    expect_row_len(row, width, K_BLOCK, Q2_K_BYTES, "Q2_K")?;
+    let mut out = Vec::with_capacity(width);
+    let (blocks, _) = row.as_chunks::<Q2_K_BYTES>();
+    for block in blocks {
+        // ggml `block_q2_K`: scales(16) + qs(64) + d(2) + dmin(2).
+        let scales = &block[0..16];
+        let qs = &block[16..80];
+        let d = f16_bits_to_f32(u16::from_le_bytes([block[80], block[81]]));
+        let dmin = f16_bits_to_f32(u16::from_le_bytes([block[82], block[83]]));
+        let mut is = 0usize;
+        for q in qs.as_chunks::<32>().0.iter() {
+            for shift in [0u32, 2, 4, 6] {
+                for half in q.as_chunks::<16>().0.iter() {
+                    let sc = scales[is];
+                    is += 1;
+                    let dl = d * (sc & 0x0F) as f32;
+                    let ml = dmin * (sc >> 4) as f32;
+                    out.extend(half.iter().map(|&b| dl * ((b >> shift) & 3) as f32 - ml));
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
+pub(crate) fn dequantize_row_q3_k(row: &[u8], width: usize) -> Result<Vec<f32>> {
+    require_multiple(width, K_BLOCK, "Q3_K")?;
+    expect_row_len(row, width, K_BLOCK, Q3_K_BYTES, "Q3_K")?;
+    let mut out = Vec::with_capacity(width);
+    let (blocks, _) = row.as_chunks::<Q3_K_BYTES>();
+    for block in blocks {
+        // ggml `block_q3_K`: hmask(32) + qs(64) + scales(12) + d(2).
+        let hmask = &block[0..32];
+        let qs = &block[32..96];
+        let d = f16_bits_to_f32(u16::from_le_bytes([block[108], block[109]]));
+        let scales = unpack_q3_k_scales(&block[96..108]);
+        let mut is = 0usize;
+        let mut m = 1u8;
+        for q in qs.as_chunks::<32>().0.iter() {
+            for shift in [0u32, 2, 4, 6] {
+                for (half, hm) in q
+                    .as_chunks::<16>()
+                    .0
+                    .iter()
+                    .zip(hmask.as_chunks::<16>().0.iter())
+                {
+                    let dl = d * (scales[is] as i32 - 32) as f32;
+                    is += 1;
+                    out.extend(half.iter().zip(hm).map(|(&b, &h)| {
+                        let low = ((b >> shift) & 3) as i32;
+                        let q3 = low - if h & m != 0 { 0 } else { 4 };
+                        dl * q3 as f32
+                    }));
+                }
+                m <<= 1;
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Unpack ggml's 12-byte packed Q3_K scales into 16 raw 6-bit values (bias 32).
+fn unpack_q3_k_scales(packed: &[u8]) -> [u8; 16] {
+    const K1: u32 = 0x0303_0303;
+    const K2: u32 = 0x0f0f_0f0f;
+    let word =
+        |i: usize| u32::from_le_bytes([packed[i], packed[i + 1], packed[i + 2], packed[i + 3]]);
+    let (a0, a1, tmp) = (word(0), word(4), word(8));
+    let aux = [
+        (a0 & K2) | ((tmp & K1) << 4),
+        (a1 & K2) | (((tmp >> 2) & K1) << 4),
+        ((a0 >> 4) & K2) | (((tmp >> 4) & K1) << 4),
+        ((a1 >> 4) & K2) | (((tmp >> 6) & K1) << 4),
+    ];
+    let mut sc = [0u8; 16];
+    for (i, w) in aux.iter().enumerate() {
+        sc[i * 4..i * 4 + 4].copy_from_slice(&w.to_le_bytes());
+    }
+    sc
+}
+
+pub(crate) fn dequantize_row_q4_k(row: &[u8], width: usize) -> Result<Vec<f32>> {
+    require_multiple(width, K_BLOCK, "Q4_K")?;
+    expect_row_len(row, width, K_BLOCK, Q4_K_BYTES, "Q4_K")?;
+    let mut out = Vec::with_capacity(width);
+    let (blocks, _) = row.as_chunks::<Q4_K_BYTES>();
+    for block in blocks {
+        let d = f16_bits_to_f32(u16::from_le_bytes([block[0], block[1]]));
+        let dmin = f16_bits_to_f32(u16::from_le_bytes([block[2], block[3]]));
+        let scales = &block[4..16];
+        let qs = &block[16..];
+        for (j, q) in qs.as_chunks::<32>().0.iter().enumerate() {
+            let (sc1, m1) = scale_min_k4(2 * j, scales);
+            let (sc2, m2) = scale_min_k4(2 * j + 1, scales);
+            let (d1, mn1) = (d * sc1 as f32, dmin * m1 as f32);
+            let (d2, mn2) = (d * sc2 as f32, dmin * m2 as f32);
+            out.extend(q.iter().map(|&b| d1 * (b & 0x0F) as f32 - mn1));
+            out.extend(q.iter().map(|&b| d2 * (b >> 4) as f32 - mn2));
+        }
+    }
+    Ok(out)
 }
 
 pub(crate) fn dequantize_row_q8_0(row: &[u8], width: usize) -> Result<Vec<f32>> {
@@ -561,6 +777,140 @@ mod tests {
         let out = dequantize_iq3_m(&block, &[256]).expect("iq3_m scaled");
         assert!(out[..16].iter().all(|&v| v == -3.0), "{:?}", &out[..16]);
         assert!(out[16..].iter().all(|&v| v == 0.0));
+    }
+
+    // Golden vectors below are hand-derived from the ggml `dequantize_row_*`
+    // reference loops (ggml-quants.c), exercising nibble/bit order, scale
+    // packing, and block strides.
+
+    #[test]
+    fn q4_0_golden_nibble_order() {
+        // d=2: qs[0]=0x9A -> y[0]=(10-8)*2=4, y[16]=(9-8)*2=2; qs[1]=0 -> -16/-16.
+        let mut block = vec![0x88u8; Q4_0_BYTES];
+        block[0..2].copy_from_slice(&f16_two());
+        block[2] = 0x9A;
+        block[3] = 0x00;
+        let out = dequantize_q4_0(&block, &[32]).expect("q4_0");
+        assert_eq!(out.len(), 32);
+        assert_eq!((out[0], out[16]), (4.0, 2.0));
+        assert_eq!((out[1], out[17]), (-16.0, -16.0));
+        assert!(
+            out.iter()
+                .enumerate()
+                .all(|(i, &v)| matches!(i, 0 | 1 | 16 | 17) || v == 0.0)
+        );
+    }
+
+    #[test]
+    fn q4_1_golden_nibble_order() {
+        // d=2, m=1: qs[0]=0x53 -> y[0]=3*2+1=7, y[16]=5*2+1=11; rest = m.
+        let mut block = vec![0u8; Q4_1_BYTES];
+        block[0..2].copy_from_slice(&f16_two());
+        block[2..4].copy_from_slice(&f16_one());
+        block[4] = 0x53;
+        let out = dequantize_q4_1(&block, &[32]).expect("q4_1");
+        assert_eq!((out[0], out[16]), (7.0, 11.0));
+        assert_eq!(out[1], 1.0);
+        assert_eq!(out[17], 1.0);
+    }
+
+    #[test]
+    fn q4_k_golden_scales_and_nibbles() {
+        // d=1, dmin=1. Group 0: sc=2, min=3. Group 1: sc=0, min=0.
+        // Group 4 (index >= 4 branch): scales[8]=0x21 -> sc=1, min=2.
+        let mut block = vec![0u8; Q4_K_BYTES];
+        block[0..2].copy_from_slice(&f16_one());
+        block[2..4].copy_from_slice(&f16_one());
+        block[4] = 2; // scales[0]
+        block[8] = 3; // scales[4]
+        block[12] = 0x21; // scales[8]
+        block[16] = 0x25; // qs[0]: low 5 -> y[0], high 2 -> y[32]
+        block[16 + 64] = 0x03; // qs[64]: low 3 -> y[128]
+        let out = dequantize_q4_k(&block, &[256]).expect("q4_k");
+        assert_eq!(out.len(), 256);
+        assert_eq!(out[0], 2.0 * 5.0 - 3.0);
+        assert_eq!(out[1], -3.0);
+        assert_eq!(out[32], 0.0);
+        assert_eq!(out[128], 1.0 * 3.0 - 2.0);
+        assert_eq!(out[129], -2.0);
+    }
+
+    #[test]
+    fn q2_k_golden_scales_and_shifts() {
+        // Layout: scales(16) qs(64) d(2) dmin(2); d=dmin=1.
+        let mut block = vec![0u8; Q2_K_BYTES];
+        block[80..82].copy_from_slice(&f16_one());
+        block[82..84].copy_from_slice(&f16_one());
+        block[0] = 0x32; // dl=2, ml=3
+        block[2] = 0x01; // dl=1, ml=0
+        block[4] = 0x10; // dl=0, ml=1
+        block[6] = 0x04; // dl=4, ml=0
+        block[8] = 0x21; // second 128-chunk: dl=1, ml=2
+        block[16] = 0b11_10_01_00; // shifts 0,2,4,6 -> 0,1,2,3
+        block[16 + 32] = 0x01;
+        let out = dequantize_q2_k(&block, &[256]).expect("q2_k");
+        assert_eq!(out.len(), 256);
+        assert_eq!(out[0], -3.0);
+        assert_eq!(out[1], -3.0);
+        assert_eq!(out[16], 0.0);
+        assert_eq!(out[32], 1.0);
+        assert_eq!(out[64], -1.0);
+        assert_eq!(out[96], 12.0);
+        assert_eq!(out[128], 1.0 * 1.0 - 2.0);
+    }
+
+    #[test]
+    fn q3_k_golden_scales_hmask_and_shifts() {
+        // Layout: hmask(32) qs(64) scales(12) d(2); d=1.
+        let mut block = vec![0u8; Q3_K_BYTES];
+        block[108..110].copy_from_slice(&f16_one());
+        for b in &mut block[0..32] {
+            *b = 0xFF;
+        }
+        // Packed scales: idx0 raw = 1 | (1<<4) = 17 (scale -15); idx8 raw = 1 (scale -31);
+        // everything else raw 0 (scale -32).
+        block[96] = 0x11;
+        block[96 + 8] = 0x01;
+        block[0] = 0x00; // hmask[0]: all high bits clear -> q-4 for lane 0
+        block[16] = 0xFE; // hmask[16]: bit 0 clear
+        block[2] = 0xEF; // hmask[2]: bit 4 clear (second 128-chunk)
+        block[32] = 0x03; // qs[0]: shift0 -> 3
+        let out = dequantize_q3_k(&block, &[256]).expect("q3_k");
+        assert_eq!(out.len(), 256);
+        assert_eq!(out[0], -15.0 * (3.0 - 4.0));
+        assert_eq!(out[1], 0.0);
+        assert_eq!(out[16], -32.0 * (0.0 - 4.0));
+        assert_eq!(out[32], -32.0 * (0.0 - 4.0));
+        assert_eq!(out[33], 0.0);
+        assert_eq!(out[130], -31.0 * (0.0 - 4.0));
+        assert_eq!(out[129], 0.0);
+    }
+
+    #[test]
+    fn new_quants_dispatch_and_row_sizes() {
+        for (dtype, bytes, width) in [
+            (DType::Q4_0, Q4_0_BYTES, 32),
+            (DType::Q4_1, Q4_1_BYTES, 32),
+            (DType::Q2_K, Q2_K_BYTES, 256),
+            (DType::Q3_K, Q3_K_BYTES, 256),
+            (DType::Q4_K, Q4_K_BYTES, 256),
+        ] {
+            let ty = dtype.ggml_type();
+            assert_eq!(packed_row_size(ty, width).unwrap(), bytes);
+            assert_eq!(packed_row_size(ty, width * 2).unwrap(), bytes * 2);
+            assert!(packed_row_size(ty, width + 1).is_err());
+            assert!(packed_row_size(ty, 0).is_err());
+            let zeros = vec![0u8; bytes];
+            let out = dequantize_packed(dtype, &zeros, &[width]).expect("dispatch");
+            assert_eq!(out.len(), width);
+            assert!(out.iter().all(|v| v.is_finite()));
+            // Short, long, and non-divisible rows fail closed.
+            assert!(dequantize_packed(dtype, &zeros[..bytes - 1], &[width]).is_err());
+            let long = vec![0u8; bytes + 1];
+            assert!(dequantize_packed(dtype, &long, &[width]).is_err());
+            assert!(dequantize_packed(dtype, &zeros, &[width + 1]).is_err());
+            assert!(dequantize_packed(dtype, &[], &[]).is_err());
+        }
     }
 
     #[test]
