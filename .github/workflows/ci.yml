@@ -29,7 +29,7 @@ jobs:
         with:
           toolchain: "1.99.0"
           components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+      - uses: Swatinem/rust-cache@c8037a86dde8214a8310e9f54a8fc61ab362aa31 # v2
       - name: Check formatting
         run: cargo fmt --check
       - name: Clippy (default features)
@@ -54,7 +54,7 @@ jobs:
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
         with:
           toolchain: "1.99.0"
-      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+      - uses: Swatinem/rust-cache@c8037a86dde8214a8310e9f54a8fc61ab362aa31 # v2
       - name: Test ${{ matrix.features }} features
         shell: bash
         env:
@@ -88,7 +88,7 @@ jobs:
         with:
           toolchain: "1.99.0"
           components: llvm-tools-preview
-      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+      - uses: Swatinem/rust-cache@c8037a86dde8214a8310e9f54a8fc61ab362aa31 # v2
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2
         with:
@@ -158,7 +158,7 @@ jobs:
         with:
           toolchain: "1.97.1"
           components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+      - uses: Swatinem/rust-cache@c8037a86dde8214a8310e9f54a8fc61ab362aa31 # v2
       - name: Confirm MSRV toolchain is active
         run: rustc --version | grep -F '1.97.1 '
       - name: Check formatting
