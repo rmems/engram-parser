@@ -309,23 +309,26 @@ pub(crate) fn dequantize_row_q3_k(row: &[u8], width: usize) -> Result<Vec<f32>> 
         let qs = &block[32..96];
         let d = f16_bits_to_f32(u16::from_le_bytes([block[108], block[109]]));
         let scales = unpack_q3_k_scales(&block[96..108]);
-        // 128-value passes; `step` walks the 2-bit shift and the hmask bit together.
-        for (pass, q) in qs.as_chunks::<32>().0.iter().enumerate() {
-            for step in 0..4usize {
-                let shift = 2 * step as u32;
-                let m = 1u8 << (pass * 4 + step);
-                for half in 0..2usize {
-                    let dl = d * (scales[pass * 8 + step * 2 + half] as i32 - 32) as f32;
-                    let lanes = half * 16..half * 16 + 16;
-                    out.extend(q[lanes.clone()].iter().zip(&hmask[lanes]).map(|(&b, &h)| {
-                        let low = ((b >> shift) & 3) as i32;
-                        dl * (low - if h & m != 0 { 0 } else { 4 }) as f32
-                    }));
-                }
+        // Eight 32-value steps: step = 4 * pass + k, where k walks the 2-bit
+        // shift and the hmask bit together (ggml `m <<= 1` per step).
+        for step in 0..8usize {
+            let q = &qs[(step / 4) * 32..][..32];
+            let (shift, m) = (2 * (step % 4) as u32, 1u8 << step);
+            for half in 0..2usize {
+                let dl = d * (scales[step * 2 + half] as i32 - 32) as f32;
+                let lanes = half * 16..half * 16 + 16;
+                push_q3_k_lanes(&mut out, dl, &q[lanes.clone()], &hmask[lanes], shift, m);
             }
         }
     }
     Ok(out)
+}
+
+fn push_q3_k_lanes(out: &mut Vec<f32>, dl: f32, qs: &[u8], hmask: &[u8], shift: u32, m: u8) {
+    out.extend(qs.iter().zip(hmask).map(|(&b, &h)| {
+        let low = ((b >> shift) & 3) as i32;
+        dl * (low - if h & m != 0 { 0 } else { 4 }) as f32
+    }));
 }
 
 /// Unpack ggml's 12-byte packed Q3_K scales into 16 raw 6-bit values (bias 32).
