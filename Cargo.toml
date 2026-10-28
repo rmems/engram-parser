@@ -8,6 +8,7 @@ license = "MIT OR Apache-2.0"
 authors = ["Raul Cardenas Montoya <montoyaraul34@gmail.com>"]
 repository = "https://github.com/rmems/engram-parser"
 homepage = "https://github.com/rmems/engram-parser"
+documentation = "https://docs.rs/engram-parser"
 keywords = ["gguf", "safetensors", "checkpoint", "tensor", "parser"]
 categories = ["parser-implementations", "science"]
 readme = "README.md"
