@@ -221,6 +221,9 @@ def dequant_q4_k(blocks):
     return out
 
 
+# NOTE: the q4_0/q4_1/q2_k/q3_k/q4_k decoders above are Python ports of the ggml
+# loops (per-op f32 rounding); they have not yet been diffed against a llama.cpp
+# build's output. Record the reference revision here once that is done.
 # New dtypes are appended so the shared PRNG stream (and therefore the
 # existing fixtures) stay byte-identical when regenerated.
 TYPES = {
