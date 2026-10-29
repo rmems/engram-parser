@@ -9,11 +9,11 @@
 
 Pure-Rust **GGUF + Safetensors checkpoint/tensor substrate** with optional format-specific helpers and model-analysis modules.
 
-`engram-parser` ships a format-independent `Checkpoint` API over GGUF v3 and Safetensors: tensor inventory, metadata, and raw payload access without branching on container format. Format-specific surfaces remain for callers that need them: GGUF wire types and packed K-quant dequant (Q8_0 / Q5_K / Q6_K / IQ3_M block layout), an optional `mmap` reader, and Safetensors header/manifest/MoE discovery — the latter behind the off-by-default `safetensors` Cargo feature, which uses the upstream `safetensors` crate for canonical validation. MoE per-expert raw-weight extraction is a GGUF-specific model-analysis specialization under `engram_parser::analysis::moe`.
+`engram-parser` ships a format-independent `Checkpoint` API over GGUF v3 and Safetensors: tensor inventory, metadata, and raw payload access without branching on container format. Format-specific surfaces remain for callers that need them: GGUF wire types and packed dequant (Q4_0 / Q4_1 / Q8_0 / Q2_K / Q3_K / Q4_K / Q5_K / Q6_K / IQ3_M block layout), an optional `mmap` reader, and Safetensors header/manifest/MoE discovery — the latter behind the off-by-default `safetensors` Cargo feature, which uses the upstream `safetensors` crate for canonical validation. MoE per-expert raw-weight extraction is a GGUF-specific model-analysis specialization under `engram_parser::analysis::moe`.
 
 > **Safetensors status:** shipped behind `--features safetensors`. Default builds are GGUF-only. Raw payload reads are bounded per-tensor; enable `--features safetensors,mmap` for borrowed mmap-backed access. No Hugging Face `config.json` policy.
 >
-> **mmap / K-quant status:** shipped. Default `load_gguf` still uses `fs::read`. Enable `--features mmap` for `load_gguf_mmap` (`memmap2`). Packed dequant for Q8_0 / Q5_K / Q6_K / IQ3_M is on the default crate. CUDA host-register is out of scope.
+> **mmap / K-quant status:** shipped. Default `load_gguf` still uses `fs::read`. Enable `--features mmap` for `load_gguf_mmap` (`memmap2`). Packed dequant for Q4_0 / Q4_1 / Q8_0 / Q2_K / Q3_K / Q4_K / Q5_K / Q6_K / IQ3_M is on the default crate. CUDA host-register is out of scope.
 
 ## Install
 
@@ -162,7 +162,7 @@ With `--features safetensors,mmap`, `open_safetensors_checkpoint_mmap` returns b
 - Extracts the raw byte buffers for one expert's `gate`, `up`, and `down` projections.
 - Supports stacked (`blk.{B}.ffn_{role}_exps.weight`) and per-expert (`blk.{B}.ffn_{role}.{E}.weight`) conventions.
 - Models packed GGUF dtype sizes without pulling in a numerical runtime.
-- Packed dequant to `f32` for **Q8_0**, **Q5_K**, **Q6_K**, and the internal **IQ3_M block** layout (`GGML_TYPE_IQ3_M_BLOCK = 0x4949334D`). Lossless **BF16→F32** widening via `Tensor::dequantize_bf16`, `dequantize_bf16_bytes` (also for Safetensors `BF16` payloads), and `dequantize_packed(DType::BF16, …)`. Existing `dequantize_f16` is unchanged.
+- Packed dequant to `f32` for **Q4_0**, **Q4_1**, **Q8_0**, **Q2_K**, **Q3_K**, **Q4_K**, **Q5_K**, **Q6_K**, and the internal **IQ3_M block** layout (`GGML_TYPE_IQ3_M_BLOCK = 0x4949334D`). Lossless **BF16→F32** widening via `Tensor::dequantize_bf16`, `dequantize_bf16_bytes` (also for Safetensors `BF16` payloads), and `dequantize_packed(DType::BF16, …)`. Existing `dequantize_f16` is unchanged.
 - Optional **`mmap` feature** (`memmap2`): `load_gguf_mmap` maps the file instead of `fs::read` into a `Vec<u8>`. Default builds still read the whole file; no dependencies are enabled by default.
 
 ### Shipped behind feature — Safetensors
@@ -223,11 +223,11 @@ Layout-aware parsing (**packed byte sizes**; plus the K-quant dequant helpers be
 
 Remaining codes use `DType::Other(u32)`. Unknown packed layouts fail closed when element count cannot be converted to a modeled byte length.
 
-Numeric helpers: `dequantize_f16`, `dequantize_bf16`, `dequantize_bf16_bytes`, `dequantize_q8_0`, `dequantize_q5_k`, `dequantize_q6_k`, `dequantize_iq3_m`. The parser's primary contract is still layout/raw bytes; these unpackers are optional CPU helpers, not a GGML compute path.
+Numeric helpers: `dequantize_f16`, `dequantize_bf16`, `dequantize_bf16_bytes`, `dequantize_q4_0`, `dequantize_q4_1`, `dequantize_q8_0`, `dequantize_q2_k`, `dequantize_q3_k`, `dequantize_q4_k`, `dequantize_q5_k`, `dequantize_q6_k`, `dequantize_iq3_m`. The parser's primary contract is still layout/raw bytes; these unpackers are optional CPU helpers, not a GGML compute path.
 
 ### GGUF wire types vs "GGML"
 
-GGUF stores each tensor dtype as a `ggml_type` integer. `engram-parser` maps those codes to labels and packed byte sizes so payload and MoE slices remain in range. Packed dequant is implemented for Q8_0, Q5_K, Q6_K, and the internal IQ3_M **block** id — not a GGML runtime.
+GGUF stores each tensor dtype as a `ggml_type` integer. `engram-parser` maps those codes to labels and packed byte sizes so payload and MoE slices remain in range. Packed dequant is implemented for Q4_0, Q4_1, Q8_0, Q2_K, Q3_K, Q4_K, Q5_K, Q6_K, and the internal IQ3_M **block** id — not a GGML runtime.
 
 Historical wire type **31** is `Q4_0_4_4`, **not** the Hugging Face preset name "IQ3_M". HuggingFace IQ3_M is a mixed-quant preset; the 111-byte block decoder uses internal `GGML_TYPE_IQ3_M_BLOCK` (`0x4949334D`). Wire 31 still has no packed byte-size model (`DType::Other(31)`), so such a checkpoint is labeled correctly but rejected during layout parsing.
 
@@ -238,7 +238,7 @@ Current GGUF surface includes:
 - `load_gguf`, `parse_bytes` (and `*_with_limits` for an explicit `ParseLimits` policy);
 - `#[cfg(feature = "mmap")] load_gguf_mmap` / `load_gguf_mmap_with_limits` → `GgufLayoutMmap` (page-aligned tensor slices via `tensor_page_aligned_bytes`);
 - `GgufLayout`, `GgufMetadata`, `Tensor`, `DType`, `ParseLimits`;
-- `dequantize_f16` / `dequantize_bf16` (on `Tensor`), `dequantize_bf16_bytes`, `dequantize_q8_0`, `dequantize_q5_k`, `dequantize_q6_k`, `dequantize_iq3_m`;
+- `dequantize_f16` / `dequantize_bf16` (on `Tensor`), `dequantize_bf16_bytes`, `dequantize_q4_0`, `dequantize_q4_1`, `dequantize_q8_0`, `dequantize_q2_k`, `dequantize_q3_k`, `dequantize_q4_k`, `dequantize_q5_k`, `dequantize_q6_k`, `dequantize_iq3_m`;
 - `extract_expert`, `list_experts` (canonical: `engram_parser::analysis::moe`);
 - `MoeExpertWeights`, `RawTensor` (also at `engram_parser::analysis::moe`);
 - `analysis::transformer::{discover_topology, discover_topology_from_parts, classify_tensor}` with `TransformerTopology`, `LayerTopology`, `TopologySummary`, `RoleAssignment`, `TensorRole`, `RoleScope`, `ParamKind`, `RoleConfidence`, `AttentionKind`, `FeedForwardKind`, `ClassifyContext` (format-independent, default features);

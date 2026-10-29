@@ -61,7 +61,10 @@ fn moe_sample_count() -> usize {
 
 #[cfg(feature = "mmap")]
 use engram_parser::load_gguf_mmap;
-use engram_parser::{GgufLayout, MoeExpertWeights, extract_expert, list_experts, load_gguf};
+use engram_parser::{
+    GgufLayout, MoeExpertWeights, dequantize_packed, extract_expert, list_experts, load_gguf,
+    packed_row_size,
+};
 
 /// Assert that an extracted expert has at least one role tensor and that each
 /// role tensor has a consistent payload size for its declared dtype.
@@ -409,6 +412,53 @@ fn real_gguf_helpers_document_env() {
     assert_eq!(
         pilot_gguf_paths_from(None, Some(dir.to_str().unwrap()), Some("5")),
         vec![gf]
+    );
+}
+
+/// Decode the first token-embedding rows of each pilot file whose
+/// `token_embd.weight` dtype has a packed decoder; every value must be finite.
+/// Files with other dtypes (F32/F16/...) are skipped, but at least one file
+/// must decode at least one row or the test fails.
+#[test]
+#[ignore = "pilot: set ENGRAM_GGUF or ENGRAM_MODEL_DIR; not run in CI"]
+fn real_gguf_token_rows_dequant_finite() {
+    const ROWS: usize = 8;
+    let mut decoded = 0usize;
+    for path in require_pilots() {
+        let layout = load_gguf(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let Some(t) = layout.tensors.get("token_embd.weight") else {
+            eprintln!("SKIP token rows {}: no token_embd.weight", path.display());
+            continue;
+        };
+        let width = t.dims[0];
+        let n_rows = t.dims.get(1).copied().unwrap_or(1).min(ROWS);
+        let Ok(row_bytes) = packed_row_size(t.ggml_type, width) else {
+            eprintln!(
+                "SKIP token rows {}: dtype {}",
+                path.display(),
+                t.dtype.label()
+            );
+            continue;
+        };
+        let bytes = layout.tensor_bytes(t).expect("token_embd bytes");
+        let packed = &bytes[..row_bytes * n_rows];
+        let out = dequantize_packed(t.dtype, packed, &[width, n_rows])
+            .unwrap_or_else(|e| panic!("{}: dequant {}: {e}", path.display(), t.dtype.label()));
+        assert_eq!(out.len(), width * n_rows);
+        assert!(
+            out.iter().all(|v| v.is_finite()),
+            "non-finite token row value"
+        );
+        eprintln!(
+            "OK token rows {} dtype={} rows={n_rows} width={width}",
+            path.display(),
+            t.dtype.label()
+        );
+        decoded += n_rows;
+    }
+    assert!(
+        decoded > 0,
+        "no pilot file had a packed-dtype token_embd.weight row to decode"
     );
 }
 
