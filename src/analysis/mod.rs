@@ -12,7 +12,9 @@
 //!   topology discovery over the [`Checkpoint`](crate::checkpoint::Checkpoint)
 //!   contract. Dense attention/MLP/norm/embedding roles and MoE
 //!   router/expert roles share one topology layer; unknown and ambiguous
-//!   tensors stay representable. Descriptive only, no execution.
+//!   tensors stay representable. [`transformer::TransformerTopology::components`]
+//!   groups classified tensors into a facts-only component view (no ANN/SNN
+//!   placement labels). Descriptive only, no execution.
 //! - [`moe`]: Mixture-of-Experts expert enumeration and per-expert
 //!   raw-weight extraction. GGUF-specific: it operates on
 //!   [`GgufLayout`](crate::gguf::GgufLayout) and returns

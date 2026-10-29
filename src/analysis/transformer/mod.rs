@@ -30,6 +30,45 @@
 //! - `*_hint` fields on [`TopologySummary`] are read from shapes and
 //!   metadata, not validated.
 //!
+//! # Component view
+//!
+//! [`TransformerTopology::components`] groups classified tensors into
+//! [`Component`] records (attention block, MLP block, MoE router, routed or
+//! stacked experts, shared expert, norms, global embeddings/head/norm).
+//! Each component carries member roles, shapes, dtypes, a parameter count,
+//! scope-derived `conditional` vs dense flags, router/gate markers, and
+//! the weakest member [`RoleConfidence`]. Unknown and ambiguous tensors
+//! remain in [`TransformerComponents::unclassified`]; they are never merged
+//! into a component by guesswork. [`TransformerComponents::to_json`] emits
+//! a stable, diff-friendly snapshot.
+//!
+//! ## Downstream placement (example only)
+//!
+//! A crate such as **hybrid-fusion** owns ANN/SNN/hybrid *placement*
+//! policy. engram-parser stays descriptive: it never labels components
+//! ANN, SNN, or hybrid. One possible consumer mapping (not a rule):
+//!
+//! ```ignore
+//! use engram_parser::analysis::transformer::{ComponentKind, TransformerTopology};
+//!
+//! fn example_placement_hint(topo: &TransformerTopology) {
+//!     for layer in &topo.components().layers {
+//!         for component in &layer.components {
+//!             let _policy = match component.kind {
+//!                 ComponentKind::AttentionBlock | ComponentKind::MlpBlock => "often ANN in v0.6 experiments",
+//!                 ComponentKind::MoeRouter | ComponentKind::RoutedExpert
+//!                 | ComponentKind::StackedExperts | ComponentKind::SharedExpert => "conditional; planner chooses backend per expert",
+//!                 ComponentKind::Norms => "fuse with adjacent block in planner",
+//!                 _ => "global / embeddings — planner-specific",
+//!             };
+//!         }
+//!     }
+//! }
+//! ```
+//!
+//! Real policies live in hybrid-fusion v0.6 ([RM-1809](https://linear.app/rpd-34/issue/RM-1809));
+//! this crate only supplies the facts above.
+//!
 //! # Example
 //!
 //! ```no_run
@@ -60,9 +99,15 @@
 //! layer indices and declared counts from untrusted input never size an
 //! allocation.
 
+mod components;
+mod json;
 mod role;
 mod topology;
 
+pub use components::{
+    Component, ComponentKind, ComponentMember, LayerComponents, TransformerComponents,
+    UnclassifiedTensor,
+};
 pub use role::{
     ClassifyContext, ParamKind, RoleAssignment, RoleConfidence, RoleScope, TensorRole,
     classify_tensor,
