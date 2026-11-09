@@ -13,7 +13,8 @@ use common::*;
 
 use engram_parser::{
     DType, ParserError, dequantize_iq3_m, dequantize_packed, dequantize_q5_k, dequantize_q6_k,
-    dequantize_q8_0, load_gguf, load_gguf_mmap, os_page_size, parse_bytes,
+    dequantize_q8_0, extract_expert, extract_expert_from, extract_expert_mmap, list_experts,
+    list_experts_from, list_experts_mmap, load_gguf, load_gguf_mmap, os_page_size, parse_bytes,
 };
 use std::fs;
 #[cfg(unix)]
@@ -415,5 +416,96 @@ struct TempGuard(PathBuf);
 impl Drop for TempGuard {
     fn drop(&mut self) {
         let _ = fs::remove_file(&self.0);
+    }
+}
+
+#[test]
+fn mmap_moe_extraction_matches_owned_stacked_and_per_expert() {
+    let inner = 4usize;
+    let outer = 2usize;
+    let n_experts = 3usize;
+    let per_expert = inner * outer;
+
+    let mut gate = vec![0.0f32; n_experts * per_expert];
+    for e in 0..n_experts {
+        let base = e * per_expert;
+        for slot in gate.iter_mut().skip(base).take(per_expert) {
+            *slot = (e as f32) + 0.1;
+        }
+    }
+    let stacked_dims = vec![inner, outer, n_experts];
+    let stacked_kv = [
+        ("general.alignment", KvValue::U32(ALIGNMENT)),
+        ("general.architecture", KvValue::Str("olmoe")),
+    ];
+    let stacked_tensors = [TensorSpec {
+        name: "blk.0.ffn_gate_exps.weight",
+        dims: stacked_dims,
+        ggml_type: GGML_F32,
+        payload: f32_vec_to_le_bytes(&gate),
+    }];
+    let stacked_bytes = build_gguf(&stacked_kv, &stacked_tensors);
+    let stacked_path = write_temp_gguf(&stacked_bytes);
+    let _stacked_guard = TempGuard(stacked_path.clone());
+
+    let owned_stacked = parse_bytes(stacked_bytes, "mem://stacked".into()).expect("parse stacked");
+    let mapped_stacked = load_gguf_mmap(&stacked_path).expect("mmap stacked");
+
+    assert_eq!(
+        list_experts(&owned_stacked),
+        list_experts_from(&mapped_stacked)
+    );
+    assert_eq!(
+        list_experts(&owned_stacked),
+        list_experts_mmap(&mapped_stacked)
+    );
+    for e in 0..n_experts {
+        let owned_w = extract_expert(&owned_stacked, 0, e).expect("owned stacked");
+        let mapped_w = extract_expert_from(&mapped_stacked, 0, e).expect("trait stacked");
+        let mapped_alias = extract_expert_mmap(&mapped_stacked, 0, e).expect("mmap alias stacked");
+        assert_eq!(
+            owned_w.gate.as_ref().map(|g| g.bytes.clone()),
+            mapped_w.gate.as_ref().map(|g| g.bytes.clone())
+        );
+        assert_eq!(
+            mapped_w.gate.as_ref().map(|g| g.bytes.clone()),
+            mapped_alias.gate.as_ref().map(|g| g.bytes.clone())
+        );
+        assert!(mapped_w.gate.as_ref().is_some_and(|g| g.stacked_slice));
+    }
+
+    let per_gate = f32_vec_to_le_bytes(&[1.0, 2.0, 3.0, 4.0]);
+    let per_kv = stacked_kv;
+    let per_tensors = [
+        TensorSpec {
+            name: "blk.0.ffn_gate.0.weight",
+            dims: vec![4],
+            ggml_type: GGML_F32,
+            payload: per_gate.clone(),
+        },
+        TensorSpec {
+            name: "blk.0.ffn_gate_1.weight",
+            dims: vec![4],
+            ggml_type: GGML_F32,
+            payload: per_gate,
+        },
+    ];
+    let per_bytes = build_gguf(&per_kv, &per_tensors);
+    let per_path = write_temp_gguf(&per_bytes);
+    let _per_guard = TempGuard(per_path.clone());
+
+    let owned_per = parse_bytes(per_bytes, "mem://per".into()).expect("parse per");
+    let mapped_per = load_gguf_mmap(&per_path).expect("mmap per");
+
+    assert_eq!(list_experts(&owned_per), vec![(0, 0), (0, 1)]);
+    assert_eq!(list_experts_from(&mapped_per), list_experts(&owned_per));
+    for e in 0..2 {
+        let owned_w = extract_expert(&owned_per, 0, e).expect("owned per");
+        let mapped_w = extract_expert_mmap(&mapped_per, 0, e).expect("mmap per");
+        assert_eq!(
+            owned_w.gate.as_ref().map(|g| g.bytes.clone()),
+            mapped_w.gate.as_ref().map(|g| g.bytes.clone())
+        );
+        assert!(!mapped_w.gate.as_ref().is_some_and(|g| g.stacked_slice));
     }
 }

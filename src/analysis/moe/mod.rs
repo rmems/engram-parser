@@ -2,16 +2,24 @@
 
 //! Mixture-of-Experts weight extraction (GGUF-specific).
 //!
-//! Locates MoE expert tensors inside a parsed [`GgufLayout`](crate::gguf::GgufLayout)
-//! and returns raw per-expert byte buffers. Performs no neural-network
-//! math — callers receive `Vec<u8>` + shape/dtype metadata and are
-//! responsible for any downstream compute.
+//! Locates MoE expert tensors inside a parsed GGUF layout and returns raw
+//! per-expert byte buffers. Performs no neural-network math — callers receive
+//! `Vec<u8>` + shape/dtype metadata and are responsible for any downstream
+//! compute.
+//!
+//! Owned checkpoints use [`list_experts`] / [`extract_expert`] on
+//! [`GgufLayout`](crate::gguf::GgufLayout). Mmap-backed checkpoints use
+//! the same helpers via [`list_experts_from`] / [`extract_expert_from`]
+//! (or the `*_mmap` aliases when the `mmap` feature is enabled) on
+//! [`GgufLayoutMmap`](crate::gguf::GgufLayoutMmap). Both paths share
+//! [`GgufTensorAccess`](crate::gguf::GgufTensorAccess) so parsing cannot
+//! drift between layout types.
 //!
 //! # Scope
 //!
 //! This is a model-analysis specialization, not part of the core
-//! checkpoint contract: [`extract_expert`] and [`list_experts`] take a
-//! concrete `&GgufLayout`, and [`RawTensor`] carries the GGUF-specific
+//! checkpoint contract: entry points take a concrete GGUF layout type or
+//! [`GgufTensorAccess`], and [`RawTensor`] carries the GGUF-specific
 //! [`DType`](crate::gguf::DType) / `ggml_type` fields of its source
 //! tensor. It does not accept [`Checkpoint`](crate::checkpoint::Checkpoint)
 //! — a format-independent MoE/topology layer is planned v0.4 work.
@@ -32,4 +40,6 @@ mod expert;
 mod extract;
 
 pub use expert::{MoeExpertWeights, RawTensor};
-pub use extract::{extract_expert, list_experts};
+pub use extract::{extract_expert, extract_expert_from, list_experts, list_experts_from};
+#[cfg(feature = "mmap")]
+pub use extract::{extract_expert_mmap, list_experts_mmap};

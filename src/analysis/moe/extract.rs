@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Per-expert weight extraction from a parsed [`GgufLayout`].
+//! Per-expert weight extraction from a parsed GGUF layout (owned or mmap).
 //!
 //! Two on-disk conventions are supported:
 //!
@@ -12,27 +12,48 @@
 //!    `blk.{b}.ffn_{role}.{e}.weight`. Whole-tensor payload is cloned.
 //!
 //! No arithmetic is performed — only byte-level slicing plus a `Vec`
-//! clone so the returned [`MoeExpertWeights`] is self-owning.
+//! clone so the returned [`MoeExpertWeights`] is self-owning. Payloads
+//! are always copied into `RawTensor::bytes` even when the layout borrows
+//! from an mmap mapping (callers get an owned buffer; see copy policy on
+//! [`extract_expert_from`]).
 
 use std::collections::BTreeSet;
 
 use super::expert::{MoeExpertWeights, RawTensor};
 use crate::error::{ParserError, Result};
-use crate::gguf::{GgufLayout, Tensor};
+use crate::gguf::{GgufLayout, GgufTensorAccess, Tensor};
+
+/// Enumerate every `(block, expert)` pair in an owned [`GgufLayout`].
+///
+/// Convenience wrapper around [`list_experts_from`].
+pub fn list_experts(layout: &GgufLayout) -> Vec<(usize, usize)> {
+    list_experts_from(layout)
+}
 
 /// Enumerate every `(block, expert)` pair present in the checkpoint.
 ///
 /// A pair is reported if *any* of the three projections (`gate`, `up`,
 /// `down`) is discoverable for it under either the stacked or the
 /// per-expert naming scheme.
-pub fn list_experts(layout: &GgufLayout) -> Vec<(usize, usize)> {
+///
+/// Works for any [`GgufTensorAccess`] implementation (owned buffer or
+/// `mmap` mapping).
+pub fn list_experts_from<L: GgufTensorAccess>(layout: &L) -> Vec<(usize, usize)> {
     let mut pairs: BTreeSet<(usize, usize)> = BTreeSet::new();
 
-    for tensor in layout.tensors.values() {
+    for tensor in layout.gguf_tensors().values() {
         record_expert_pairs(tensor, &mut pairs);
     }
 
     pairs.into_iter().collect()
+}
+
+#[cfg(feature = "mmap")]
+/// Enumerate MoE `(block, expert)` pairs from a memory-mapped layout.
+///
+/// Identical to [`list_experts_from`] on [`crate::GgufLayoutMmap`].
+pub fn list_experts_mmap(layout: &crate::GgufLayoutMmap) -> Vec<(usize, usize)> {
+    list_experts_from(layout)
 }
 
 fn record_expert_pairs(tensor: &Tensor, pairs: &mut BTreeSet<(usize, usize)>) {
@@ -50,14 +71,31 @@ fn record_expert_pairs(tensor: &Tensor, pairs: &mut BTreeSet<(usize, usize)>) {
     }
 }
 
+/// Extract the raw weights for a single `(block, expert)` pair from an
+/// owned [`GgufLayout`].
+///
+/// Convenience wrapper around [`extract_expert_from`].
+pub fn extract_expert(
+    layout: &GgufLayout,
+    block: usize,
+    expert: usize,
+) -> Result<MoeExpertWeights> {
+    extract_expert_from(layout, block, expert)
+}
+
 /// Extract the raw weights for a single `(block, expert)` pair.
 ///
 /// Returns [`MoeExpertWeights`] whose `gate / up / down` fields are
 /// `None` when that projection was not found in the checkpoint. If
 /// *none* of the three projections can be located, returns
 /// [`ParserError::MissingTensor`].
-pub fn extract_expert(
-    layout: &GgufLayout,
+///
+/// **Copy policy:** tensor payloads are always cloned into owned
+/// `Vec<u8>` in the returned [`RawTensor`] values, including stacked
+/// slices and mmap-backed sources. The layout is only borrowed for
+/// directory lookup and byte views during the call.
+pub fn extract_expert_from<L: GgufTensorAccess>(
+    layout: &L,
     block: usize,
     expert: usize,
 ) -> Result<MoeExpertWeights> {
@@ -68,7 +106,7 @@ pub fn extract_expert(
     if gate.is_none() && up.is_none() && down.is_none() {
         return Err(ParserError::MissingTensor {
             name: format!("blk.{block}.ffn_(gate|up|down)[_exps].weight"),
-            path: layout.path.clone(),
+            path: layout.gguf_path().to_owned(),
         });
     }
 
@@ -81,15 +119,27 @@ pub fn extract_expert(
     })
 }
 
-fn extract_role(
-    layout: &GgufLayout,
+#[cfg(feature = "mmap")]
+/// Extract one MoE expert from a memory-mapped layout.
+///
+/// Identical to [`extract_expert_from`] on [`crate::GgufLayoutMmap`].
+pub fn extract_expert_mmap(
+    layout: &crate::GgufLayoutMmap,
+    block: usize,
+    expert: usize,
+) -> Result<MoeExpertWeights> {
+    extract_expert_from(layout, block, expert)
+}
+
+fn extract_role<L: GgufTensorAccess>(
+    layout: &L,
     block: usize,
     expert: usize,
     role: &str,
 ) -> Result<Option<RawTensor>> {
     // Prefer the stacked convention first.
     let stacked_name = format!("blk.{block}.ffn_{role}_exps.weight");
-    if let Some(tensor) = layout.tensors.get(&stacked_name) {
+    if let Some(tensor) = layout.gguf_tensors().get(&stacked_name) {
         return Ok(Some(slice_stacked_expert(layout, block, tensor, expert)?));
     }
 
@@ -100,7 +150,7 @@ fn extract_role(
         format!("blk.{block}.ffn_{role}.{expert}.weight"),
         format!("blk.{block}.ffn_{role}_{expert}.weight"),
     ] {
-        if let Some(tensor) = layout.tensors.get(&candidate) {
+        if let Some(tensor) = layout.gguf_tensors().get(&candidate) {
             let bytes = layout.tensor_bytes(tensor)?.to_vec();
             return Ok(Some(RawTensor {
                 source_name: tensor.name.clone(),
@@ -123,8 +173,8 @@ fn extract_role(
 /// dimension in the `dims` vector. The per-expert chunk consists of
 /// the first `n_elements / n_experts` elements per expert, laid out
 /// contiguously in the tensor buffer.
-fn slice_stacked_expert(
-    layout: &GgufLayout,
+fn slice_stacked_expert<L: GgufTensorAccess>(
+    layout: &L,
     block: usize,
     tensor: &Tensor,
     expert: usize,
@@ -144,14 +194,14 @@ fn slice_stacked_expert(
     })
 }
 
-fn validate_stacked_expert_count(
-    layout: &GgufLayout,
+fn validate_stacked_expert_count<L: GgufTensorAccess>(
+    layout: &L,
     block: usize,
     tensor: &Tensor,
     expert: usize,
 ) -> Result<usize> {
     let n_experts = stacked_expert_count(tensor).ok_or_else(|| ParserError::InvalidLayout {
-        path: layout.path.clone(),
+        path: layout.gguf_path().to_owned(),
         reason: format!(
             "stacked tensor '{}' has rank {} (dims={:?}); expected rank >= 2",
             tensor.name,
@@ -162,7 +212,7 @@ fn validate_stacked_expert_count(
 
     if n_experts == 0 {
         return Err(ParserError::InvalidLayout {
-            path: layout.path.clone(),
+            path: layout.gguf_path().to_owned(),
             reason: format!("stacked tensor '{}' has zero experts", tensor.name),
         });
     }
@@ -178,8 +228,8 @@ fn validate_stacked_expert_count(
     Ok(n_experts)
 }
 
-fn stacked_slice_range(
-    layout: &GgufLayout,
+fn stacked_slice_range<L: GgufTensorAccess>(
+    layout: &L,
     tensor: &Tensor,
     expert: usize,
     n_experts: usize,
@@ -187,7 +237,7 @@ fn stacked_slice_range(
 ) -> Result<(usize, usize)> {
     if !tensor.byte_len.is_multiple_of(n_experts) {
         return Err(ParserError::InvalidLayout {
-            path: layout.path.clone(),
+            path: layout.gguf_path().to_owned(),
             reason: format!(
                 "stacked tensor '{}' byte length {} is not divisible by n_experts={n_experts}",
                 tensor.name, tensor.byte_len,
@@ -199,18 +249,18 @@ fn stacked_slice_range(
     let start = expert
         .checked_mul(stride)
         .ok_or_else(|| ParserError::InvalidLayout {
-            path: layout.path.clone(),
+            path: layout.gguf_path().to_owned(),
             reason: format!("stacked stride overflow for tensor '{}'", tensor.name),
         })?;
     let end = start
         .checked_add(stride)
         .ok_or_else(|| ParserError::InvalidLayout {
-            path: layout.path.clone(),
+            path: layout.gguf_path().to_owned(),
             reason: format!("stacked end overflow for tensor '{}'", tensor.name),
         })?;
     if end > buffer_len {
         return Err(ParserError::InvalidLayout {
-            path: layout.path.clone(),
+            path: layout.gguf_path().to_owned(),
             reason: format!(
                 "stacked slice range [{start}..{end}] for tensor '{}' exceeds buffer len {buffer_len}",
                 tensor.name,

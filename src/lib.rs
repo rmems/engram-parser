@@ -69,7 +69,10 @@
 //! ```
 //!
 //! MoE expert analysis (GGUF-specific) uses the canonical
-//! [`analysis::moe`] path:
+//! [`analysis::moe`] path. Owned loads use [`load_gguf`]; with the
+//! `mmap` feature, [`load_gguf_mmap`] plus [`analysis::moe::list_experts_from`]
+//! / [`analysis::moe::extract_expert_from`] avoid copying the file into a
+//! `Vec<u8>` (payloads are still cloned into owned expert buffers).
 //!
 //! ```no_run
 //! use engram_parser::analysis::moe::{extract_expert, list_experts};
@@ -160,6 +163,7 @@ pub use gguf::{
     GGUF_VALUE_TYPE_UINT64,
     GgufLayout,
     GgufMetadata,
+    GgufTensorAccess,
     ParseLimits,
     Tensor,
     bf16_bits_to_f32,
@@ -189,4 +193,9 @@ pub use gguf::{
 };
 // MoE analysis result types and extractors, re-exported for
 // compatibility; the canonical path is `analysis::moe`.
-pub use analysis::moe::{MoeExpertWeights, RawTensor, extract_expert, list_experts};
+pub use analysis::moe::{
+    MoeExpertWeights, RawTensor, extract_expert, extract_expert_from, list_experts,
+    list_experts_from,
+};
+#[cfg(feature = "mmap")]
+pub use analysis::moe::{extract_expert_mmap, list_experts_mmap};

@@ -56,7 +56,10 @@ impl AnyCheckpoint {
         }
     }
 
-    /// Memory-mapped GGUF layout.
+    /// Memory-mapped GGUF layout for
+    /// [`crate::analysis::moe::list_experts_from`] /
+    /// [`crate::analysis::moe::extract_expert_from`] (or the `*_mmap`
+    /// aliases).
     #[cfg(feature = "mmap")]
     pub fn as_gguf_mmap(&self) -> Option<&crate::GgufLayoutMmap> {
         match self {
