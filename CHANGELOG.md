@@ -6,6 +6,17 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- **Real-checkpoint topology tests ([RM-1800](https://linear.app/rpd-34/issue/RM-1800) / RM-2367 pin set):**
+  `tests/real_topology.rs` runs `discover_topology` on the pinned Qwen3-0.6B,
+  Qwen2.5-0.5B-Instruct, OLMoE-1B-7B-0125-Instruct, and Qwen3.5-0.8B fixtures
+  in both GGUF and Safetensors, checks GGUF↔Safetensors structural parity
+  (documenting format-specific naming and expert-stacking differences), and
+  validates layer/expert counts against each model's `config.json` and GGUF
+  metadata. Qwen3.5's linear-attention, vision, and MTP tensors surface as
+  Unknown rather than guessed. The tests are `#[ignore]`d and opt-in via
+  `ENGRAM_REAL_FIXTURES` / `ENGRAM_FIXTURE_ROOT`; weights are never committed
+  and CI never downloads them. Pins, run instructions, and observed results
+  are in `docs/real-fixtures.md`.
 - **MoE extraction on mmap-backed GGUF ([RM-1462](https://linear.app/rpd-34/issue/RM-1462)):**
   [`GgufTensorAccess`] shares tensor-directory and payload access between
   [`GgufLayout`] and [`GgufLayoutMmap`]. [`list_experts_from`] /
