@@ -22,7 +22,10 @@ use crate::error::{ParserError, Result};
 /// GGUF layout backed by a read-only file mapping instead of an owned `Vec<u8>`.
 ///
 /// Header, KV metadata, and the tensor directory are identical to
-/// [`GgufLayout`]. Tensor payloads are borrowed from the mapping.
+/// [`GgufLayout`]. Tensor payloads are borrowed from the mapping. MoE
+/// expert listing and extraction use [`super::access::GgufTensorAccess`]
+/// via [`crate::analysis::moe::list_experts_from`] /
+/// [`crate::analysis::moe::extract_expert_from`].
 pub struct GgufLayoutMmap {
     /// Path the checkpoint was mapped from (kept for error messages).
     pub path: String,

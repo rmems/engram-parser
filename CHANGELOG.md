@@ -6,6 +6,14 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- **MoE extraction on mmap-backed GGUF ([RM-1462](https://linear.app/rpd-34/issue/RM-1462)):**
+  [`GgufTensorAccess`] shares tensor-directory and payload access between
+  [`GgufLayout`] and [`GgufLayoutMmap`]. [`list_experts_from`] /
+  [`extract_expert_from`] (and `list_experts_mmap` / `extract_expert_mmap`
+  when the `mmap` feature is enabled) reuse the same stacked and per-expert
+  parsing as the existing owned-layout helpers. Expert payloads are still
+  copied into owned `Vec<u8>` buffers on return. Integration tests assert
+  owned/mmap parity on synthetic fixtures.
 - **Packed dequant for Q4_0 / Q4_1 / Q4_K / Q3_K / Q2_K (#125):**
   `dequantize_q4_0`, `dequantize_q4_1`, `dequantize_q2_k`, `dequantize_q3_k`,
   `dequantize_q4_k`, wired into `dequantize_packed` and `packed_row_size`
