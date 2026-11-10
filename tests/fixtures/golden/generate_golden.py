@@ -12,10 +12,7 @@ llama.cpp scalar decoders (dequantize_row_q8_0 / q5_K / q6_K in
 ggml/src/ggml-quants.c, tag b4800). The Q8_0, Q5_K, and Q6_K vectors are
 therefore *conformance* vectors against an external reference.
 
-IQ3_M is an internal 111-byte block layout, not a GGUF wire type; its
-vectors are a literal port of `dequantize_row_iq3_m` and only lock in
-current behavior as a *regression* check (they prove nothing about
-external conformance).
+The legacy `iq3_m` fixtures were removed in RM-2012 (no llama.cpp `block_iq3_m`).
 
 Usage:
 
@@ -99,33 +96,6 @@ def dequant_q6_k(blocks):
             pos += 128
             ql, qh, sc = ql[64:], qh[32:], sc[8:]
         out.extend(y)
-    return out
-
-
-def dequant_iq3_m(blocks):
-    """Literal port of engram-parser dequantize_row_iq3_m (internal layout).
-    Regression vectors only; IQ3_M is not a GGUF wire type."""
-    out = []
-    for x in blocks:
-        d = f16_to_f32(x[0] | (x[1] << 8))
-        hmask, qs, scales, scales_h = x[2:34], x[34:98], x[98:110], x[110]
-        sc = [0] * 16
-        bit_pos = 0
-        for i in range(16):
-            byte_idx, bit_shift = bit_pos // 8, bit_pos % 8
-            val = (scales[byte_idx] >> bit_shift) & 0x3F if byte_idx < 12 else 0
-            if bit_shift > 2 and byte_idx + 1 < 12:
-                rem = 6 - (8 - bit_shift)
-                val |= (scales[byte_idx + 1] & ((1 << rem) - 1)) << (8 - bit_shift)
-            sc[i] = val
-            bit_pos += 6
-        for i in range(16):
-            sc[i] |= ((scales_h >> (i * 2)) & 0x03) << 6
-        for i in range(256):
-            q = ((qs[i // 4] >> ((i % 4) * 2)) & 0x03) | (
-                ((hmask[i // 8] >> (i % 8)) & 0x01) << 2
-            )
-            out.append(d * sc[i // 16] * (q - 4))
     return out
 
 

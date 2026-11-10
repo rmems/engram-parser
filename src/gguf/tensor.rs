@@ -12,7 +12,7 @@
 //! GGUF stores each tensor’s dtype as a `ggml_type` `u32`. The
 //! `GGML_TYPE_*` constants mirror that table (same numbers as `ggml.h`)
 //! so we can label types and compute **packed byte lengths**. Packed
-//! dequant for Q4_0/Q4_1/Q8_0/Q2_K/Q3_K/Q4_K/Q5_K/Q6_K/IQ3_M lives in [`super::dequant`].
+//! dequant for Q4_0/Q4_1/Q8_0/Q2_K/Q3_K/Q4_K/Q5_K/Q6_K lives in [`super::dequant`].
 //! [`ggml_type_label`] maps any `u32` code to a short diagnostic string.
 
 use crate::error::{ParserError, Result};
@@ -82,14 +82,17 @@ pub const GGML_TYPE_BF16: u32 = 30;
 /// GGUF wire type 31: historical `Q4_0_4_4` layout (removed from current ggml).
 ///
 /// Must **not** be treated as an IQ3_M block type. HuggingFace “IQ3_M” is a
-/// mixed-quant *preset*, not wire id 31; the 111-byte IQ3_M path is an
-/// **internal** non-wire id only (see [`GGML_TYPE_IQ3_M_BLOCK`]).
+/// mixed-quant *preset*, not wire id 31 (see [`GGML_TYPE_IQ3_M_BLOCK`]).
 pub const GGML_TYPE_Q4_0_4_4: u32 = 31;
-/// Internal id for the 111-byte IQ3_M *block layout* decoder only.
+/// Deprecated synthetic id (`'II3M'`). Not a llama.cpp wire type.
 ///
-/// Not a GGUF wire type: HuggingFace “IQ3_M” is a mixed-quant *preset*, not
-/// type id 31. Production GGUFs never emit this code; synthetic fixtures and
-/// [`crate::dequantize_iq3_m`] use it. ASCII `'II3M'`.
+/// There is no `block_iq3_m` in ggml; IQ3_M files use per-tensor types such as
+/// [`GGML_TYPE_IQ3_S`] (`block_iq3_s`, 110 bytes). The former internal 111-byte
+/// decoder was removed in 0.4.0 (RM-2012).
+#[deprecated(
+    since = "0.4.0",
+    note = "Not a llama.cpp block type; see dequant::IQ3_M_DECODER_REMOVED"
+)]
 pub const GGML_TYPE_IQ3_M_BLOCK: u32 = 0x4949_334D;
 
 // ---------------------------------------------------------------------------
@@ -221,8 +224,11 @@ pub enum DType {
     I32,
     /// 64-bit signed integer (`GGML_TYPE_I64 = 27`).
     I64,
-    /// Internal 111-byte IQ3_M block layout ([`GGML_TYPE_IQ3_M_BLOCK`]).
-    /// Not GGUF wire type 31.
+    /// Deprecated synthetic layout id ([`GGML_TYPE_IQ3_M_BLOCK`]); no wire bytes.
+    #[deprecated(
+        since = "0.4.0",
+        note = "Not a llama.cpp block type; see dequant::IQ3_M_DECODER_REMOVED"
+    )]
     IQ3_M_BLOCK,
     /// Any other GGML dtype not explicitly enumerated above. The raw
     /// `u32` code is preserved so callers can dispatch on it.
@@ -338,8 +344,8 @@ impl DType {
             | Self::IQ3_S
             | Self::IQ1_S
             | Self::IQ1_M
-            | Self::IQ4_XS
-            | Self::IQ3_M_BLOCK => Some(256),
+            | Self::IQ4_XS => Some(256),
+            Self::IQ3_M_BLOCK => None,
             Self::F32
             | Self::F16
             | Self::BF16
@@ -404,19 +410,18 @@ impl DType {
             Self::IQ1_M => blocked_byte_len(n_elements, 256, 56),
             Self::IQ4_NL => blocked_byte_len(n_elements, 32, 18),
             Self::IQ4_XS => blocked_byte_len(n_elements, 256, 136),
-            // Internal IQ3_M block layout (not wire 31): 111 bytes / 256 values.
-            Self::IQ3_M_BLOCK => blocked_byte_len(n_elements, 256, 111),
-            // Opaque / unknown (includes wire 31 Q4_0_4_4).
-            Self::Other(_) => None,
+            // Opaque / unknown (includes wire 31 Q4_0_4_4 and deprecated IQ3_M_BLOCK).
+            Self::IQ3_M_BLOCK | Self::Other(_) => None,
         }
     }
 
-    /// `true` if this crate models the wire layout of this dtype, i.e. every
-    /// variant except [`DType::Other`]. For blocked quants the element count
-    /// must also be block-aligned before [`Self::byte_len_for_elements`]
-    /// returns `Some`.
+    /// `true` if this crate models the wire layout of this dtype.
+    ///
+    /// [`DType::Other`] and deprecated [`DType::IQ3_M_BLOCK`] are excluded. For
+    /// blocked quants the element count must also be block-aligned before
+    /// [`Self::byte_len_for_elements`] returns `Some`.
     pub fn has_known_byte_layout(self) -> bool {
-        !matches!(self, Self::Other(_))
+        !matches!(self, Self::Other(_) | Self::IQ3_M_BLOCK)
     }
 
     /// Whether the dtype is a plain (non-quantized) float layout.
@@ -887,9 +892,8 @@ mod tests {
             (DType::IQ4_NL, 64, Some(36)),
             (DType::IQ4_NL, 33, None),
             (DType::IQ4_XS, 256, Some(136)),
-            (DType::IQ3_M_BLOCK, 256, Some(111)),
-            (DType::IQ3_M_BLOCK, 512, Some(222)),
-            (DType::IQ3_M_BLOCK, 100, None),
+            (DType::IQ3_M_BLOCK, 256, None),
+            (DType::IQ3_M_BLOCK, 512, None),
         ];
         for (dt, n, expected) in cases {
             assert_eq!(dt.byte_len_for_elements(n), expected, "{dt:?} x {n}");
@@ -905,7 +909,7 @@ mod tests {
             (DType::IQ3_S, true),
             (DType::IQ2_XXS, true),
             (DType::IQ4_NL, true),
-            (DType::IQ3_M_BLOCK, true),
+            (DType::IQ3_M_BLOCK, false),
             (DType::Other(31), false),
             (DType::Other(99), false),
         ];
@@ -967,12 +971,13 @@ mod tests {
                 && !dt.has_known_byte_layout(),
             "wire 31 semantics: label={label}, dt={dt:?}"
         );
+        #[allow(deprecated)]
         let iq3 = DType::from_ggml_type(GGML_TYPE_IQ3_M_BLOCK);
         assert!(
             iq3 == DType::IQ3_M_BLOCK
                 && ggml_type_label(GGML_TYPE_IQ3_M_BLOCK) == "IQ3_M_BLOCK"
-                && iq3.byte_len_for_elements(256) == Some(111)
-                && iq3.has_known_byte_layout(),
+                && iq3.byte_len_for_elements(256).is_none()
+                && !iq3.has_known_byte_layout(),
             "IQ3_M_BLOCK must stay distinct from wire 31: {iq3:?}"
         );
     }

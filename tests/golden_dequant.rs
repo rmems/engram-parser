@@ -12,14 +12,13 @@
 //! same ggml loops written independently of the Rust decoders (with per-operation
 //! f32 rounding), but they have **not** yet been compared against output from a
 //! llama.cpp build. Treat them as cross-implementation checks until that
-//! comparison is recorded here. `iq3_m` vectors only lock in current behavior
-//! for the internal (non-wire) 111-byte layout.
+//! comparison is recorded here.
 //!
 //! Bit-exact equality is asserted (f32 bits), not approximate tolerance.
 
 use engram_parser::{
-    dequantize_iq3_m, dequantize_q2_k, dequantize_q3_k, dequantize_q4_0, dequantize_q4_1,
-    dequantize_q4_k, dequantize_q5_k, dequantize_q6_k, dequantize_q8_0,
+    dequantize_q2_k, dequantize_q3_k, dequantize_q4_0, dequantize_q4_1, dequantize_q4_k,
+    dequantize_q5_k, dequantize_q6_k, dequantize_q8_0,
 };
 
 fn expected_f32(bytes: &[u8]) -> Vec<f32> {
@@ -103,15 +102,4 @@ fn golden_q4_k() {
     let packed = include_bytes!("fixtures/golden/q4_k.packed.bin");
     let expected = include_bytes!("fixtures/golden/q4_k.expected.bin");
     check("q4_k", expected, dequantize_q4_k(packed, &[1024]).unwrap());
-}
-
-#[test]
-fn golden_iq3_m_regression() {
-    let packed = include_bytes!("fixtures/golden/iq3_m.packed.bin");
-    let expected = include_bytes!("fixtures/golden/iq3_m.expected.bin");
-    check(
-        "iq3_m",
-        expected,
-        dequantize_iq3_m(packed, &[1024]).unwrap(),
-    );
 }

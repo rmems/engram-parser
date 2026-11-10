@@ -260,8 +260,10 @@ mod tests {
             normalize_dtype(DType::Q4_K, 12),
             TensorDType::GgufPacked { ggml_type: 12 }
         );
+        #[allow(deprecated)]
+        let iq3 = DType::IQ3_M_BLOCK;
         assert_eq!(
-            normalize_dtype(DType::IQ3_M_BLOCK, 0x4949_334D),
+            normalize_dtype(iq3, 0x4949_334D),
             TensorDType::GgufPacked {
                 ggml_type: 0x4949_334D
             }

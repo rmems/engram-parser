@@ -12,7 +12,7 @@ mod common;
 use common::*;
 
 use engram_parser::{
-    DType, ParserError, dequantize_iq3_m, dequantize_packed, dequantize_q5_k, dequantize_q6_k,
+    DType, ParserError, dequantize_packed, dequantize_q5_k, dequantize_q6_k,
     dequantize_q8_0, load_gguf, load_gguf_mmap, os_page_size, parse_bytes,
 };
 use std::fs;
@@ -78,16 +78,6 @@ fn q6_k_minus_32_block() -> Vec<u8> {
         *b = 1;
     }
     block[208..210].copy_from_slice(&f16_one());
-    block
-}
-
-fn iq3_m_scaled_block() -> Vec<u8> {
-    let mut block = vec![0u8; 111];
-    block[0..2].copy_from_slice(&f16_one());
-    for b in &mut block[34..98] {
-        *b = 0x55;
-    }
-    block[98] = 0x01;
     block
 }
 
@@ -248,7 +238,6 @@ fn mmap_dequant_matches_owned_for_k_quants() {
     let q8 = q8_0_ones_block();
     let q5 = q5_k_ones_block();
     let q6 = q6_k_minus_32_block();
-    let iq3 = iq3_m_scaled_block();
     let kv = [
         ("general.alignment", KvValue::U32(ALIGNMENT)),
         ("general.architecture", KvValue::Str("olmoe")),
@@ -277,12 +266,6 @@ fn mmap_dequant_matches_owned_for_k_quants() {
             dims: vec![256],
             ggml_type: GGML_Q6_K,
             payload: q6.clone(),
-        },
-        TensorSpec {
-            name: "iq3.weight",
-            dims: vec![256],
-            ggml_type: GGML_IQ3_M_BLOCK,
-            payload: iq3.clone(),
         },
     ];
     let bytes = build_gguf(&kv, &tensors);
@@ -317,10 +300,6 @@ fn mmap_dequant_matches_owned_for_k_quants() {
     let q6_map = mapped
         .tensor_bytes(mapped.tensor("q6.weight").unwrap())
         .expect("q6 mmap");
-    let iq3_map = mapped
-        .tensor_bytes(mapped.tensor("iq3.weight").unwrap())
-        .expect("iq3 mmap");
-
     let q8_owned = owned
         .tensor_bytes(owned.tensor("q8.weight").unwrap())
         .expect("q8 owned");
@@ -330,27 +309,18 @@ fn mmap_dequant_matches_owned_for_k_quants() {
     let q6_owned = owned
         .tensor_bytes(owned.tensor("q6.weight").unwrap())
         .expect("q6 owned");
-    let iq3_owned = owned
-        .tensor_bytes(owned.tensor("iq3.weight").unwrap())
-        .expect("iq3 owned");
-
     assert_eq!(q8_map, q8_owned);
     assert_eq!(q5_map, q5_owned);
     assert_eq!(q6_map, q6_owned);
-    assert_eq!(iq3_map, iq3_owned);
     assert_eq!(q8_pages.tensor_bytes(), q8_map);
 
     let q8_f = dequantize_q8_0(q8_map, &[32]).expect("q8 dequant");
     let q5_f = dequantize_q5_k(q5_map, &[256]).expect("q5 dequant");
     let q6_f = dequantize_q6_k(q6_map, &[256]).expect("q6 dequant");
-    let iq3_f = dequantize_iq3_m(iq3_map, &[256]).expect("iq3 dequant");
-
     assert_all(&[
         (q8_f.iter().all(|&v| v == 1.0), "q8 ones"),
         (q5_f.iter().all(|&v| v == 1.0), "q5 ones"),
         (q6_f.iter().all(|&v| v == -32.0), "q6 -32"),
-        (iq3_f[..16].iter().all(|&v| v == -3.0), "iq3 first scale"),
-        (iq3_f[16..].iter().all(|&v| v == 0.0), "iq3 rest zero"),
         (
             dequantize_packed(DType::Q8_0, q8_map, &[32]).unwrap() == q8_f,
             "packed q8",
@@ -362,10 +332,6 @@ fn mmap_dequant_matches_owned_for_k_quants() {
         (
             dequantize_packed(DType::Q6_K, q6_map, &[256]).unwrap() == q6_f,
             "packed q6",
-        ),
-        (
-            dequantize_packed(DType::IQ3_M_BLOCK, iq3_map, &[256]).unwrap() == iq3_f,
-            "packed iq3",
         ),
     ]);
 }

@@ -35,7 +35,9 @@
 //! - **GGUF wire-type metadata**: labels + packed `byte_len` for known quant
 //!   codes (F32/F16/BF16, Q*/IQ*, integers, historical wire 31 = `Q4_0_4_4`).
 //!   Packed dequant is implemented for Q4_0, Q4_1, Q8_0, Q2_K, Q3_K, Q4_K,
-//!   Q5_K, Q6_K, and the internal IQ3_M block layout. No GGML kernels, no ggml runtime, no CUDA.
+//!   Q5_K, and Q6_K. No GGML kernels, no ggml runtime, no CUDA.
+//!   The former internal IQ3_M 111-byte decoder was removed (RM-2012): llama.cpp
+//!   IQ3_M is a file preset; tensors use wire types such as `IQ3_S` (`block_iq3_s`, 110 B).
 //! - **Type labels**: Human-readable names via [`ggml_type_label`] (maps the
 //!   on-wire `ggml_type` integer used by GGUF)
 //! - **Transformer topology**: [`analysis::transformer::discover_topology`]
@@ -110,6 +112,7 @@ pub use checkpoint::{
 #[cfg(feature = "mmap")]
 pub use checkpoint::{GgufMmapBackend, open_checkpoint_mmap};
 pub use error::{HostSizeField, ParseLimitKind, ParserError, Result};
+#[allow(deprecated)]
 pub use gguf::{
     DType,
     // GGML type constants
@@ -166,6 +169,7 @@ pub use gguf::{
     dequantize_bf16_bytes,
     dequantize_iq3_m,
     dequantize_packed,
+    IQ3_M_DECODER_REMOVED,
     dequantize_q2_k,
     dequantize_q3_k,
     dequantize_q4_0,

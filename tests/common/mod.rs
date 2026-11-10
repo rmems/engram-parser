@@ -21,8 +21,9 @@ pub const GGML_Q4_K: u32 = 12;
 pub const GGML_Q5_K: u32 = 13;
 pub const GGML_Q6_K: u32 = 14;
 pub const GGML_IQ3_S: u32 = 21;
-/// Internal 111-byte IQ3_M block id (not GGUF wire type 31).
-pub const GGML_IQ3_M_BLOCK: u32 = 0x4949_334D;
+/// Deprecated synthetic id (not a llama.cpp wire type; RM-2012).
+#[allow(deprecated)]
+pub const GGML_IQ3_M_BLOCK: u32 = engram_parser::GGML_TYPE_IQ3_M_BLOCK;
 
 pub enum KvValue {
     U32(u32),

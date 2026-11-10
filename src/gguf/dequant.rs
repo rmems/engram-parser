@@ -1,19 +1,21 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Packed-block dequantization for Q4_0, Q4_1, Q2_K, Q3_K, Q4_K, Q8_0, Q5_K, Q6_K, and IQ3_M.
+//! Packed-block dequantization for Q4_0, Q4_1, Q2_K, Q3_K, Q4_K, Q8_0, Q5_K, and Q6_K.
 //!
 //! These helpers operate on already-sliced packed bytes (owned `Vec<u8>` or
 //! mmap-backed `&[u8]`). They perform no CUDA / host-register work.
 //!
-//! HuggingFace “IQ3_M” is a mixed-quant *preset*, not GGUF wire type 31.
-//! Wire 31 remains historical [`super::tensor::GGML_TYPE_Q4_0_4_4`]. The
-//! 111-byte IQ3_M block decoder uses the internal non-wire id
-//! [`super::tensor::GGML_TYPE_IQ3_M_BLOCK`].
+//! HuggingFace / llama.cpp **IQ3_M** is a mixed-quant file preset
+//! (`LLAMA_FTYPE_MOSTLY_IQ3_M`), not a tensor block type. On-disk tensors use
+//! wire types such as [`super::tensor::GGML_TYPE_IQ3_S`] (`block_iq3_s`, 110
+//! bytes / 256 values per `ggml-common.h`) and Q4_K. There is no `block_iq3_m`
+//! in upstream ggml. The former internal 111-byte decoder
+//! ([`super::tensor::GGML_TYPE_IQ3_M_BLOCK`]) did not match that layout and is
+//! removed (RM-2012). Wire 31 remains historical [`super::tensor::GGML_TYPE_Q4_0_4_4`].
 
 use super::tensor::{
-    DType, GGML_TYPE_IQ3_M_BLOCK, GGML_TYPE_Q2_K, GGML_TYPE_Q3_K, GGML_TYPE_Q4_0, GGML_TYPE_Q4_1,
-    GGML_TYPE_Q4_K, GGML_TYPE_Q5_K, GGML_TYPE_Q6_K, GGML_TYPE_Q8_0, dequantize_bf16_bytes,
-    f16_bits_to_f32,
+    DType, GGML_TYPE_Q2_K, GGML_TYPE_Q3_K, GGML_TYPE_Q4_0, GGML_TYPE_Q4_1, GGML_TYPE_Q4_K,
+    GGML_TYPE_Q5_K, GGML_TYPE_Q6_K, GGML_TYPE_Q8_0, dequantize_bf16_bytes, f16_bits_to_f32,
 };
 use crate::error::{ParserError, Result};
 
@@ -28,7 +30,13 @@ const Q4_K_BYTES: usize = 144;
 const K_BLOCK: usize = 256;
 const Q5_K_BYTES: usize = 176;
 const Q6_K_BYTES: usize = 210;
-const IQ3_M_BYTES: usize = 111;
+
+/// Why [`dequantize_iq3_m`] always fails (llama.cpp layout audit, RM-2012).
+pub const IQ3_M_DECODER_REMOVED: &str = "dequantize_iq3_m removed (RM-2012): llama.cpp has no block_iq3_m; \
+IQ3_M is LLAMA_FTYPE_MOSTLY_IQ3_M (mixed preset). IQ3_S wire tensors use block_iq3_s \
+(110 bytes: f16 d + qs[64] + qh[8] + signs[32] + scales[4]). The former internal \
+111-byte layout (d + hmask[32] + qs[64] + scales[12] + scales_h) did not match block_iq3_s \
+or block_q3_K (110 bytes). Use dequantize_q3_k / IQ3_S when a block decoder exists.";
 
 /// Packed byte length of one row for a blocked quant dtype.
 pub fn packed_row_size(ggml_type: u32, width: usize) -> Result<usize> {
@@ -41,7 +49,6 @@ pub fn packed_row_size(ggml_type: u32, width: usize) -> Result<usize> {
         GGML_TYPE_Q8_0 => row_size_for_block(width, Q8_0_BLOCK, Q8_0_BYTES, "Q8_0"),
         GGML_TYPE_Q5_K => row_size_for_block(width, K_BLOCK, Q5_K_BYTES, "Q5_K"),
         GGML_TYPE_Q6_K => row_size_for_block(width, K_BLOCK, Q6_K_BYTES, "Q6_K"),
-        GGML_TYPE_IQ3_M_BLOCK => row_size_for_block(width, K_BLOCK, IQ3_M_BYTES, "IQ3_M"),
         other => Err(unsupported(format!(
             "row-size lookup is not implemented for ggml_type={other}"
         ))),
@@ -146,18 +153,16 @@ pub fn dequantize_q6_k(packed: &[u8], dims: &[usize]) -> Result<Vec<f32>> {
     )
 }
 
-/// Dequantize packed IQ3_M *block-layout* bytes (111 bytes / 256 values) to `f32`.
+/// Former internal 111-byte IQ3_M decoder (removed).
 ///
-/// This is **not** GGUF wire type 31 (`Q4_0_4_4`). See [`GGML_TYPE_IQ3_M_BLOCK`].
-pub fn dequantize_iq3_m(packed: &[u8], dims: &[usize]) -> Result<Vec<f32>> {
-    dequantize_rows(
-        packed,
-        dims,
-        K_BLOCK,
-        IQ3_M_BYTES,
-        "IQ3_M",
-        dequantize_row_iq3_m,
-    )
+/// Always fails with [`IQ3_M_DECODER_REMOVED`]. IQ3_M checkpoints use
+/// per-tensor wire types (`IQ3_S`, `Q4_K`, …), not this synthetic layout.
+#[deprecated(
+    since = "0.4.0",
+    note = "Removed: not a llama.cpp block type; see dequant::IQ3_M_DECODER_REMOVED"
+)]
+pub fn dequantize_iq3_m(_packed: &[u8], _dims: &[usize]) -> Result<Vec<f32>> {
+    Err(unsupported(IQ3_M_DECODER_REMOVED))
 }
 
 /// Dispatch packed dequant for the dtypes this crate implements.
@@ -174,7 +179,7 @@ pub fn dequantize_packed(dtype: DType, packed: &[u8], dims: &[usize]) -> Result<
         DType::Q8_0 => dequantize_q8_0(packed, dims),
         DType::Q5_K => dequantize_q5_k(packed, dims),
         DType::Q6_K => dequantize_q6_k(packed, dims),
-        DType::IQ3_M_BLOCK => dequantize_iq3_m(packed, dims),
+        DType::IQ3_M_BLOCK => Err(unsupported(IQ3_M_DECODER_REMOVED)),
         DType::BF16 => dequantize_bf16_dims(packed, dims),
         other => Err(fail_closed_dequant(other)),
     }
@@ -474,59 +479,6 @@ pub(crate) fn dequantize_row_q6_k(row: &[u8], width: usize) -> Result<Vec<f32>> 
     Ok(out)
 }
 
-pub(crate) fn dequantize_row_iq3_m(row: &[u8], width: usize) -> Result<Vec<f32>> {
-    require_multiple(width, K_BLOCK, "IQ3_M")?;
-    expect_row_len(row, width, K_BLOCK, IQ3_M_BYTES, "IQ3_M")?;
-    let mut out = Vec::with_capacity(width);
-    let (blocks, _) = row.as_chunks::<IQ3_M_BYTES>();
-    for block in blocks {
-        let d = f16_bits_to_f32(u16::from_le_bytes([block[0], block[1]]));
-        let hmask = &block[2..34];
-        let qs = &block[34..98];
-        let scales = &block[98..110];
-        let scales_h = block[110];
-        let sc = unpack_iq3_m_scales(scales, scales_h);
-        for i in 0..256 {
-            let qs_byte = qs[i / 4];
-            let qs_shift = (i % 4) * 2;
-            let low_2 = (qs_byte >> qs_shift) & 0x03;
-            let hmask_byte = hmask[i / 8];
-            let high_bit = (hmask_byte >> (i % 8)) & 0x01;
-            let q = low_2 | (high_bit << 2);
-            let q_signed = q as i8 - 4;
-            let scale = sc[i / 16] as f32;
-            out.push(d * scale * q_signed as f32);
-        }
-    }
-    Ok(out)
-}
-
-fn unpack_iq3_m_scales(scales: &[u8], scales_h: u8) -> [u8; 16] {
-    let mut sc = [0u8; 16];
-    let mut bit_pos = 0usize;
-    for sc_val in &mut sc {
-        let byte_idx = bit_pos / 8;
-        let bit_shift = bit_pos % 8;
-        let mut val = if byte_idx < 12 {
-            (scales[byte_idx] >> bit_shift) & 0x3F
-        } else {
-            0
-        };
-        if bit_shift > 2 && byte_idx + 1 < 12 {
-            let rem = 6 - (8 - bit_shift);
-            val |= (scales[byte_idx + 1] & ((1 << rem) - 1)) << (8 - bit_shift);
-        }
-        *sc_val = val;
-        bit_pos += 6;
-    }
-    let scales_h_u32 = u32::from(scales_h);
-    for (i, sc_val) in sc.iter_mut().enumerate() {
-        let high_bits = ((scales_h_u32 >> (i * 2)) & 0x03) as u8;
-        *sc_val |= high_bits << 6;
-    }
-    sc
-}
-
 fn scale_min_k4(index: usize, scales: &[u8]) -> (u8, u8) {
     if index < 4 {
         (scales[index] & 63, scales[index + 4] & 63)
@@ -759,28 +711,18 @@ mod tests {
     }
 
     #[test]
-    fn iq3_m_zero_scales_vector() {
-        let mut block = vec![0u8; IQ3_M_BYTES];
-        block[0..2].copy_from_slice(&f16_one());
-        for b in &mut block[34..98] {
-            *b = 0x55;
-        }
-        let out = dequantize_iq3_m(&block, &[256]).expect("iq3_m");
-        assert_eq!(out.len(), 256);
-        assert!(out.iter().all(|&v| v == 0.0), "expected zeros, got {out:?}");
-    }
-
-    #[test]
-    fn iq3_m_nonzero_first_scale() {
-        let mut block = vec![0u8; IQ3_M_BYTES];
-        block[0..2].copy_from_slice(&f16_one());
-        for b in &mut block[34..98] {
-            *b = 0x55; // low-2 = 1 → q_signed = -3
-        }
-        block[98] = 0x01; // first 6-bit scale = 1
-        let out = dequantize_iq3_m(&block, &[256]).expect("iq3_m scaled");
-        assert!(out[..16].iter().all(|&v| v == -3.0), "{:?}", &out[..16]);
-        assert!(out[16..].iter().all(|&v| v == 0.0));
+    #[allow(deprecated)]
+    fn iq3_m_decoder_removed_rm2012() {
+        assert!(dequantize_iq3_m(&[0u8; 111], &[256]).is_err());
+        assert!(dequantize_packed(DType::IQ3_M_BLOCK, &[0u8; 111], &[256]).is_err());
+        assert_eq!(
+            dequantize_iq3_m(&[0u8; 111], &[256])
+                .unwrap_err()
+                .to_string(),
+            dequantize_packed(DType::IQ3_M_BLOCK, &[0u8; 111], &[256])
+                .unwrap_err()
+                .to_string()
+        );
     }
 
     // Golden vectors below are hand-derived from the ggml `dequantize_row_*`
@@ -918,10 +860,8 @@ mod tests {
     }
 
     #[test]
-    fn packed_row_size_iq3_m_is_not_wire_31() {
-        assert_eq!(packed_row_size(GGML_TYPE_IQ3_M_BLOCK, 256).unwrap(), 111);
-        assert_eq!(packed_row_size(GGML_TYPE_IQ3_M_BLOCK, 512).unwrap(), 222);
-        assert!(packed_row_size(GGML_TYPE_IQ3_M_BLOCK, 255).is_err());
+    fn packed_row_size_rejects_internal_iq3_m_and_wire_31() {
+        assert!(packed_row_size(super::tensor::GGML_TYPE_IQ3_M_BLOCK, 256).is_err());
         assert!(packed_row_size(31, 256).is_err());
     }
 
@@ -931,15 +871,18 @@ mod tests {
         assert!(dequantize_q8_0(&[0u8; 33], &[32]).is_err());
         assert!(dequantize_row_q8_0(&[0u8; 33], 32).is_err());
         assert!(dequantize_row_q5_k(&[0u8; 175], 256).is_err());
-        assert!(dequantize_iq3_m(&[0u8; 111], &[255]).is_err());
-        assert!(dequantize_iq3_m(&[0u8; 110], &[256]).is_err());
+        #[allow(deprecated)]
+        {
+            assert!(dequantize_iq3_m(&[0u8; 111], &[255]).is_err());
+            assert!(dequantize_iq3_m(&[0u8; 110], &[256]).is_err());
+        }
         assert!(dequantize_q5_k(&[0u8; 176], &[]).is_err());
         assert!(dequantize_q8_0(&[], &[0]).is_err());
         assert!(dequantize_packed(DType::F32, &[0u8; 4], &[1]).is_err());
         assert!(dequantize_packed(DType::Other(31), &[0u8; 18], &[32]).is_err());
         assert!(dequantize_packed(DType::Q5_K, &[0u8; 176], &[256]).is_ok());
         assert!(dequantize_packed(DType::Q6_K, &[0u8; 210], &[256]).is_ok());
-        assert!(dequantize_packed(DType::IQ3_M_BLOCK, &[0u8; 111], &[256]).is_ok());
+        assert!(dequantize_packed(DType::IQ3_M_BLOCK, &[0u8; 111], &[256]).is_err());
     }
 
     #[test]

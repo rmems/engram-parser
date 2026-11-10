@@ -21,7 +21,7 @@ use std::path::Path;
 pub use dequant::{
     dequantize_iq3_m, dequantize_packed, dequantize_q2_k, dequantize_q3_k, dequantize_q4_0,
     dequantize_q4_1, dequantize_q4_k, dequantize_q5_k, dequantize_q6_k, dequantize_q8_0,
-    packed_row_size,
+    packed_row_size, IQ3_M_DECODER_REMOVED,
 };
 pub use layout::{GgufLayout, GgufMetadata};
 pub use limits::ParseLimits;
