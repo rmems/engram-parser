@@ -8,17 +8,17 @@ Claude-specific notes only. Layout, toolchain, feature list, CI job list, and co
 ## Commands
 
 Run from the repo root. "Verified" means it ran successfully in a fresh checkout on Rust 1.99.0 (the pin in
-`rust-toolchain.toml`) or 1.97.1 (MSRV), Linux, CPU only. `Cargo.lock` is tracked, so `--locked` is correct.
+`rust-toolchain.toml`) or 1.88.0 (MSRV), Linux, CPU only. `Cargo.lock` is tracked, so `--locked` is correct.
 
 | Command | Status |
 |---|---|
-| `cargo fmt --check` | verified (1.99.0 and 1.97.1) |
+| `cargo fmt --check` | verified (1.99.0 and 1.88.0) |
 | `cargo clippy --all-targets --locked -- -D warnings` | verified |
-| `cargo clippy --all-targets --all-features --locked -- -D warnings` | verified (1.99.0 and 1.97.1) |
+| `cargo clippy --all-targets --all-features --locked -- -D warnings` | verified (1.99.0 and 1.88.0) |
 | `cargo build --locked` | verified |
-| `cargo build --all-features --locked` | verified (1.99.0 and 1.97.1) |
+| `cargo build --all-features --locked` | verified (1.99.0 and 1.88.0) |
 | `cargo test --locked` | verified |
-| `cargo test --all-features --locked` | verified (1.99.0 and 1.97.1) |
+| `cargo test --all-features --locked` | verified (1.99.0 and 1.88.0) |
 | `RUSTDOCFLAGS='-D warnings' cargo doc --all-features --no-deps` | verified (from `RELEASE.md`) |
 | `cargo llvm-cov --all-targets --all-features --locked --lcov --output-path lcov.info` | verified (needs `cargo install cargo-llvm-cov --locked`; `lcov.info` is gitignored) |
 | `ENGRAM_GGUF=/path/to/model.gguf cargo test --test real_gguf -- --ignored --nocapture` | not run (needs multi-GB local GGUF weights) |
@@ -53,6 +53,6 @@ commit generated files. Run fmt and clippy before committing.
 ## Gotchas
 
 - Never run `cargo publish` or create release tags from an agent session; releases follow `RELEASE.md` and are done by the maintainer.
-- The MSRV toolchain needs its own components: `rustup component add --toolchain 1.97.1 rustfmt clippy`.
+- The MSRV toolchain needs its own components: `rustup component add --toolchain 1.88.0 rustfmt clippy`.
 - `.claude/` is gitignored, so keep shared agent guidance in this file or `AGENTS.md`.
 - Edit only what the task needs.

@@ -4,7 +4,7 @@
 [![codecov](https://codecov.io/gh/rmems/engram-parser/graph/badge.svg?token=zIX63gAh4q)](https://codecov.io/gh/rmems/engram-parser)
 [![Maintainability](https://qlty.sh/gh/rmems/projects/engram-parser/maintainability.svg)](https://qlty.sh/gh/rmems/projects/engram-parser)
 [![Rust 1.99.0](https://img.shields.io/badge/Rust-1.99.0-orange)](https://github.com/rmems/engram-parser/blob/main/rust-toolchain.toml)
-[![MSRV 1.97.1](https://img.shields.io/badge/MSRV-1.97.1-blue)](https://github.com/rmems/engram-parser/blob/main/Cargo.toml)
+[![MSRV 1.88.0](https://img.shields.io/badge/MSRV-1.88.0-blue)](https://github.com/rmems/engram-parser/blob/main/Cargo.toml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
 
 Pure-Rust **GGUF + Safetensors checkpoint/tensor substrate** with optional format-specific helpers and model-analysis modules.
@@ -317,7 +317,8 @@ See [`REVIEW.md`](https://github.com/rmems/engram-parser/blob/main/REVIEW.md) fo
 ## CI
 
 - GitHub Actions: `.github/workflows/ci.yml` runs default and all-feature
-  tests separately on Linux, Windows, and macOS, plus a Rust 1.97.1 MSRV job.
+  tests separately on Linux, Windows, and macOS, plus an MSRV job that reads
+  `rust-version` from `Cargo.toml` (currently Rust 1.88.0).
 - Coverage: Linux `cargo llvm-cov` produces a downloadable LCOV artifact and
   uploads to Codecov when the repository token is available.
 - Quality: Qlty checks workflow syntax and reports maintainability; Rust
@@ -339,7 +340,7 @@ have succeeded.
 
 ## MSRV (Minimum Supported Rust Version)
 
-**MSRV: Rust 1.97.1.**
+**MSRV: Rust 1.88.0.**
 
 - Declared through `rust-version` in `Cargo.toml`.
 - Tested in CI alongside the pinned Rust 1.99.0 build toolchain.
