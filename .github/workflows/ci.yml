@@ -177,6 +177,10 @@ jobs:
         env:
           RUSTUP_TOOLCHAIN: ${{ steps.msrv.outputs.msrv }}
         run: cargo fmt --check
+      - name: Check (all features)
+        env:
+          RUSTUP_TOOLCHAIN: ${{ steps.msrv.outputs.msrv }}
+        run: cargo check --all-features --locked
       - name: Clippy (all features)
         env:
           RUSTUP_TOOLCHAIN: ${{ steps.msrv.outputs.msrv }}

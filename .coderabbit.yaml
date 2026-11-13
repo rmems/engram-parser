@@ -13,11 +13,12 @@ reviews:
   path_instructions:
     - path: '**/*.rs'
       instructions: >-
-        Rust edition 2024; rust-version = "1.97.1" is enforced by a dedicated MSRV
-        job; rust-toolchain.toml tracks stable. Do not suggest downgrading the
-        edition or using std/language APIs newer than the pinned toolchain/MSRV. CI
+        Rust edition 2024; rust-version = "1.88.0" is enforced by a dedicated MSRV
+        job that reads Cargo.toml; rust-toolchain.toml pins the 1.99.0 dev
+        toolchain. Do not suggest downgrading the
+        edition or using std/language APIs newer than the MSRV. CI
         gate: cargo clippy --all-targets --locked -- -D warnings, cargo test
-        --locked, plus --all-features builds/tests and the MSRV 1.97.1 job. Flag
+        --locked, plus --all-features builds/tests and the MSRV job. Flag
         anything that would fail cargo fmt --check or clippy -D warnings. The
         default build is GGUF-only with zero dependencies; mmap and safetensors
         are optional features and must stay behind #[cfg(feature = ...)]. Flag any

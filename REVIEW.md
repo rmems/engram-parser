@@ -383,7 +383,7 @@ When changing Rust versions, the two pins are independent:
 
 - `Cargo.toml` `rust-version` is the **true minimum supported Rust version**
   (currently 1.88.0). Lower or raise it only with a measured
-  `cargo +<ver> check --all-targets --all-features` result; the CI `msrv`
+  `cargo +<ver> check --locked --all-targets --all-features` result; the CI `msrv`
   job reads it from `Cargo.toml`, so no workflow edit is needed when it
   changes.
 - `rust-toolchain.toml` `channel` and the non-MSRV CI jobs (`quality`,
