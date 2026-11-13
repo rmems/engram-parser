@@ -144,28 +144,52 @@ jobs:
         run: qlty smells --all --no-snippets --quiet
 
   msrv:
-    name: MSRV (1.97.1)
+    name: MSRV (Cargo.toml rust-version)
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
-      RUSTUP_TOOLCHAIN: "1.97.1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install Rust MSRV (1.97.1)
+      - name: Read MSRV from Cargo.toml
+        id: msrv
+        shell: bash
+        run: |
+          MSRV=$(sed -nE 's/^rust-version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' Cargo.toml | head -n1)
+          if [ -z "$MSRV" ]; then
+            echo "::error::could not read package.rust-version from Cargo.toml"
+            exit 1
+          fi
+          echo "msrv=$MSRV" >> "$GITHUB_OUTPUT"
+      - name: Install Rust MSRV
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
         with:
-          toolchain: "1.97.1"
+          toolchain: ${{ steps.msrv.outputs.msrv }}
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
       - name: Confirm MSRV toolchain is active
-        run: rustc --version | grep -F '1.97.1 '
+        shell: bash
+        env:
+          MSRV: ${{ steps.msrv.outputs.msrv }}
+          RUSTUP_TOOLCHAIN: ${{ steps.msrv.outputs.msrv }}
+        run: rustc --version | grep -F "$MSRV "
       - name: Check formatting
+        env:
+          RUSTUP_TOOLCHAIN: ${{ steps.msrv.outputs.msrv }}
         run: cargo fmt --check
+      - name: Check (all features)
+        env:
+          RUSTUP_TOOLCHAIN: ${{ steps.msrv.outputs.msrv }}
+        run: cargo check --all-features --locked
       - name: Clippy (all features)
+        env:
+          RUSTUP_TOOLCHAIN: ${{ steps.msrv.outputs.msrv }}
         run: cargo clippy --all-targets --all-features --locked -- -D warnings
       - name: Build (all features)
+        env:
+          RUSTUP_TOOLCHAIN: ${{ steps.msrv.outputs.msrv }}
         run: cargo build --all-features --locked
       - name: Test (all features)
+        env:
+          RUSTUP_TOOLCHAIN: ${{ steps.msrv.outputs.msrv }}
         run: cargo test --all-features --locked

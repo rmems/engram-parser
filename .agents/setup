@@ -8,7 +8,7 @@
 # Installs only what this repo's CI and manifests need:
 #   - apt: build-essential, pkg-config, curl, ca-certificates
 #   - Rust stable (+rustfmt, clippy, llvm-tools-preview) [default]
-#   - Rust 1.97.1 (+rustfmt, clippy)
+#   - Rust 1.88.0 (+rustfmt, clippy)
 #   - cargo fetch --locked
 #
 # It ends with a dependency fetch/prebuild, not a test run.
@@ -47,8 +47,8 @@ fi
 # rust-toolchain.toml: channel stable + rustfmt, clippy, llvm-tools-preview.
 rustup toolchain install stable --profile minimal --component rustfmt --component clippy --component llvm-tools-preview
 rustup default stable
-# CI msrv job (rust-version 1.97.1).
-rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+# CI msrv job (rust-version 1.88.0).
+rustup toolchain install 1.88.0 --profile minimal --component rustfmt --component clippy
 
 # --- Prefetch crates (no build, no tests) ---
 cargo fetch --locked

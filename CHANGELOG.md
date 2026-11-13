@@ -73,6 +73,12 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- **MSRV lowered to Rust 1.88.0 ([#137](https://github.com/rmems/engram-parser/issues/137)):**
+  `Cargo.toml` `rust-version` drops from 1.97.1 to the measured floor 1.88.0
+  (let-chains and `slice::as_chunks` need 1.88; `is_multiple_of` needs 1.87).
+  The dev toolchain stays pinned at 1.99.0 (`rust-toolchain.toml` and the
+  non-MSRV CI jobs), and the CI `msrv` job now reads `package.rust-version`
+  from `Cargo.toml` instead of a hardcoded toolchain.
 - **Coverage CI ([RM-1951](https://linear.app/rpd-34/issue/RM-1951)):** the
   Coverage job skips the Codecov upload when `CODECOV_TOKEN` is unset on a
   pull request and keeps the LCOV artifact. A `push` or `schedule` run

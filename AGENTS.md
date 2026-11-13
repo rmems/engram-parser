@@ -25,7 +25,7 @@ compute** in this repo (CUDA host-register belongs to `myelin-accelerator`).
 ## Toolchain
 
 - `rust-toolchain.toml`: pinned Rust 1.99.0 with rustfmt, clippy, llvm-tools-preview.
-- MSRV **1.97.1** (`rust-version`). The CI `msrv` job repeats fmt/clippy/build/test on 1.97.1.
+- MSRV **1.88.0** (`rust-version`, the true measured minimum). The CI `msrv` job reads it from `Cargo.toml` and repeats fmt/clippy/build/test on that toolchain. The dev/CI pin (`rust-toolchain.toml`, non-MSRV jobs) stays at 1.99.0 — the two are allowed to differ.
 - Features: `mmap` (`memmap2`), `safetensors` (upstream `safetensors` crate). Both off by default.
 - No GPU or system packages needed.
 
@@ -41,11 +41,11 @@ cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo build --all-features
 cargo test --all-features
-# MSRV job (RUSTUP_TOOLCHAIN=1.97.1 overrides pinned Rust 1.99.0)
-cargo +1.97.1 fmt --check
-cargo +1.97.1 clippy --all-targets --all-features -- -D warnings
-cargo +1.97.1 build --all-features
-cargo +1.97.1 test --all-features
+# MSRV job (reads rust-version from Cargo.toml; RUSTUP_TOOLCHAIN overrides pinned Rust 1.99.0)
+cargo +1.88.0 fmt --check
+cargo +1.88.0 clippy --all-targets --all-features -- -D warnings
+cargo +1.88.0 build --all-features
+cargo +1.88.0 test --all-features
 ```
 
 Coverage: `cargo llvm-cov --all-targets --all-features --locked --lcov --output-path lcov.info`.

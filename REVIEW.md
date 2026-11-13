@@ -100,7 +100,7 @@ rustup show
 rustup component add rustfmt
 # or pin explicitly:
 rustup component add rustfmt --toolchain 1.99.0
-rustup component add rustfmt --toolchain 1.97.1   # for MSRV checks
+rustup component add rustfmt --toolchain 1.88.0   # for MSRV checks
 
 # Confirm the binary cargo will call
 cargo fmt --version
@@ -136,7 +136,7 @@ There is no `rustfmt.toml` in this repo; defaults are fine.
 | `test` (default) | `cargo test` | GGUF-only unit, integration, and doc tests pass independently |
 | `clean-tree` | `git status --porcelain` empty | No stray outputs after build/test |
 | `coverage` (CI) | `cargo llvm-cov --all-targets --all-features --locked --lcov --output-path coverage.lcov` | Downloadable LCOV artifact and Codecov project/patch feedback |
-| `msrv` (opt) | toolchain **1.97.1** + same fmt/clippy/build/test | Matches `rust-version` / CI `msrv` job |
+| `msrv` (opt) | toolchain **1.88.0** + same fmt/clippy/build/test | Matches `rust-version`; CI `msrv` job reads the pin from `Cargo.toml` |
 
 ### Coverage (local)
 
@@ -176,19 +176,19 @@ cargo llvm-cov --version
 **You must install the MSRV toolchain first.** If you skip this, you get:
 
 ```text
-error: toolchain '1.97.1-x86_64-unknown-linux-gnu' is not installed
-help: run `rustup toolchain install 1.97.1` ...
+error: toolchain '1.88.0-x86_64-unknown-linux-gnu' is not installed
+help: run `rustup toolchain install 1.88.0` ...
 ```
 
 **One-time setup:**
 
 ```bash
 # Install the exact MSRV pin (matches Cargo.toml rust-version / CI msrv job)
-rustup toolchain install 1.97.1 --component rustfmt,clippy
+rustup toolchain install 1.88.0 --component rustfmt,clippy
 
-# Confirm cargo can see it (must print 1.97.1)
-cargo +1.97.1 -V
-rustc +1.97.1 -V
+# Confirm cargo can see it (must print 1.88.0)
+cargo +1.88.0 -V
+rustc +1.88.0 -V
 ```
 
 **Then build/test on MSRV** (from repo root):
@@ -197,33 +197,33 @@ rustc +1.97.1 -V
 cd ~/rmems/engram-parser
 
 # Preferred: explicit +toolchain (overrides rust-toolchain.toml for this command)
-cargo +1.97.1 fmt --check
-cargo +1.97.1 clippy --all-targets --all-features -- -D warnings
-cargo +1.97.1 build --all-features
-cargo +1.97.1 test --all-features
+cargo +1.88.0 fmt --check
+cargo +1.88.0 clippy --all-targets --all-features -- -D warnings
+cargo +1.88.0 build --all-features
+cargo +1.88.0 test --all-features
 ```
 
-**Alternatives if `+1.97.1` is awkward in an IDE/script:**
+**Alternatives if `+1.88.0` is awkward in an IDE/script:**
 
 ```bash
 # Same effect via env (also overrides directory rust-toolchain.toml)
-RUSTUP_TOOLCHAIN=1.97.1 cargo build --all-features
-RUSTUP_TOOLCHAIN=1.97.1 cargo test --all-features
+RUSTUP_TOOLCHAIN=1.88.0 cargo build --all-features
+RUSTUP_TOOLCHAIN=1.88.0 cargo test --all-features
 
 # Or rustup run
-rustup run 1.97.1 cargo test --all-features
+rustup run 1.88.0 cargo test --all-features
 ```
 
 Plain `cargo build` / `cargo test` use pinned Rust 1.99.0 for day-to-day
-work. Use `+1.97.1` for the separate compatibility gate matching CI's `msrv`
+work. Use `+1.88.0` for the separate compatibility gate matching CI's `msrv`
 job; the minimum supported version is not the default build compiler.
 
 | Symptom | Fix |
 |---------|-----|
-| `toolchain '1.97.1' is not installed` | `rustup toolchain install 1.97.1 --component rustfmt,clippy` |
-| `+1.97.1` ignored / still wrong version | Prefer `cargo +1.97.1 -V` to verify; or `RUSTUP_TOOLCHAIN=1.97.1` |
-| `clippy-driver` / rustfmt missing on 1.97.1 | `rustup component add clippy rustfmt --toolchain 1.97.1` |
-| IDE “Cargo” has no `+1.97.1` | Set env `RUSTUP_TOOLCHAIN=1.97.1` in the run config, or use the terminal |
+| `toolchain '1.88.0' is not installed` | `rustup toolchain install 1.88.0 --component rustfmt,clippy` |
+| `+1.88.0` ignored / still wrong version | Prefer `cargo +1.88.0 -V` to verify; or `RUSTUP_TOOLCHAIN=1.88.0` |
+| `clippy-driver` / rustfmt missing on 1.88.0 | `rustup component add clippy rustfmt --toolchain 1.88.0` |
+| IDE “Cargo” has no `+1.88.0` | Set env `RUSTUP_TOOLCHAIN=1.88.0` in the run config, or use the terminal |
 
 ---
 
@@ -374,15 +374,22 @@ cargo run --locked --example benchmark --profile bench --features bench,cuda
 | default/all-feature tests and clean-tree guard | `test` matrix in `.github/workflows/ci.yml` (Linux, Windows, macOS) |
 | all-target/all-feature LCOV and Codecov upload | `coverage` in `.github/workflows/ci.yml` (Linux artifact retained) |
 | workflow lint and duplication/complexity analysis | `qlty` in `.github/workflows/ci.yml`; Rust fmt/Clippy remain authoritative |
-| MSRV 1.97.1 fmt/clippy/build/test | `msrv` in `.github/workflows/ci.yml` (pinned `toolchain: "1.97.1"`) |
+| MSRV (`rust-version`) fmt/clippy/build/test | `msrv` in `.github/workflows/ci.yml` (reads `package.rust-version` from `Cargo.toml`) |
 | Security audit | `.github/workflows/security.yml` (not required for every local edit) |
 | T1 real GGUF / T2 GPU | **Not in CI** — local pilots only |
 | Release package/rustdoc/dry-run gate | `verify` in `.github/workflows/release.yml`; see `RELEASE.md` |
 
-When changing Rust versions, update the pinned normal-build toolchain and
-`quality` / `test` / `coverage` jobs together. Change `Cargo.toml`'s
-`rust-version` and the separate `msrv` job only when intentionally raising
-the minimum supported version.
+When changing Rust versions, the two pins are independent:
+
+- `Cargo.toml` `rust-version` is the **true minimum supported Rust version**
+  (currently 1.88.0). Lower or raise it only with a measured
+  `cargo +<ver> check --locked --all-targets --all-features` result; the CI `msrv`
+  job reads it from `Cargo.toml`, so no workflow edit is needed when it
+  changes.
+- `rust-toolchain.toml` `channel` and the non-MSRV CI jobs (`quality`,
+  `test`, `coverage`) are the **dev toolchain**, currently pinned to
+  1.99.0. Bump them together for routine toolchain upgrades; `rust-version`
+  does not have to move with them (`rust-version <= toolchain channel`).
 
 ---
 
