@@ -137,7 +137,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install Qlty CLI
-        uses: qltysh/qlty-action/install@c9b09987143d1e4ac955f4803c7bea742102feb5 # v2.4.0
+        uses: qltysh/qlty-action/install@ebcd284bf32e36a030afe15f1e136c7be08b9506 # v2.5.0
       - name: Lint GitHub Actions workflows
         run: qlty check --all --no-formatters --summary
       - name: Report duplication and complexity
