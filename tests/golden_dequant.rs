@@ -13,7 +13,9 @@
 //! f32 rounding), but they have **not** yet been compared against output from a
 //! llama.cpp build. Treat them as cross-implementation checks until that
 //! comparison is recorded here. `iq3_m` vectors only lock in current behavior
-//! for the internal (non-wire) 111-byte layout.
+//! for the internal (non-wire) 111-byte layout — no external producer or
+//! reference decoder exists for it (RM-2012), so these are regression
+//! vectors, not conformance vectors.
 //!
 //! Bit-exact equality is asserted (f32 bits), not approximate tolerance.
 

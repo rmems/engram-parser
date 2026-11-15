@@ -35,7 +35,8 @@
 //! - **GGUF wire-type metadata**: labels + packed `byte_len` for known quant
 //!   codes (F32/F16/BF16, Q*/IQ*, integers, historical wire 31 = `Q4_0_4_4`).
 //!   Packed dequant is implemented for Q4_0, Q4_1, Q8_0, Q2_K, Q3_K, Q4_K,
-//!   Q5_K, Q6_K, and the internal IQ3_M block layout. No GGML kernels, no ggml runtime, no CUDA.
+//!   Q5_K, Q6_K, and the internal IQ3_M block layout (internal-only; no known
+//!   external producer). No GGML kernels, no ggml runtime, no CUDA.
 //! - **Type labels**: Human-readable names via [`ggml_type_label`] (maps the
 //!   on-wire `ggml_type` integer used by GGUF)
 //! - **Transformer topology**: [`analysis::transformer::discover_topology`]

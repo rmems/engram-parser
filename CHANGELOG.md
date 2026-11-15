@@ -84,6 +84,13 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- **IQ3_M block decoder documented as internal-only ([RM-2012](https://linear.app/rpd-34/issue/RM-2012)):**
+  recorded the 111-byte layout's provenance in `dequant.rs`, `tensor.rs`, and
+  `README.md` — it was written in corinth-canal PR #94 to read an
+  ik_llama.cpp `MOSTLY_IQ3_M` *file-type* checkpoint whose tensors actually
+  use standard ik_llama blocks. No writer emits 111-byte blocks, so the API
+  is marked internal-only with no verified conformance; it stays public for
+  lineage compatibility, locked by golden regression vectors.
 - **MSRV lowered to Rust 1.88.0 ([#137](https://github.com/rmems/engram-parser/issues/137)):**
   `Cargo.toml` `rust-version` drops from 1.97.1 to the measured floor 1.88.0
   (let-chains and `slice::as_chunks` need 1.88; `is_multiple_of` needs 1.87).
