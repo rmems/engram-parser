@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **IQ3_M block decoder documented as internal-only ([RM-2012](https://linear.app/rpd-34/issue/RM-2012)):**
+  recorded the 111-byte layout's provenance in `dequant.rs`, `tensor.rs`, and
+  `README.md` — it was written in corinth-canal PR #94 to read an
+  ik_llama.cpp `MOSTLY_IQ3_M` *file-type* checkpoint whose tensors actually
+  use standard ik_llama blocks. No writer emits 111-byte blocks, so the API
+  is marked internal-only with no verified conformance; it stays public for
+  lineage compatibility, locked by golden regression vectors.
+
 ### Added
 
 - **Real-checkpoint topology tests ([RM-1800](https://linear.app/rpd-34/issue/RM-1800) / RM-2367 pin set):**
