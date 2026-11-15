@@ -9,8 +9,8 @@ is `#[ignore]`d and gated by `tests/common/real_fixtures.rs`.
 
 ```bash
 # Pre-staged weights: point the helper at a root holding <fixture id>/ dirs
-# (e.g. C:\models\qwen3-0.6b\model.safetensors):
-ENGRAM_FIXTURE_ROOT=C:\models cargo test --all-features \
+# (e.g. C:/models/qwen3-0.6b/model.safetensors):
+ENGRAM_FIXTURE_ROOT=C:/models cargo test --all-features \
     --test real_topology -- --ignored --nocapture
 
 # Or let it download ~28 GB once into a verified cache:
@@ -22,7 +22,8 @@ ENGRAM_REAL_FIXTURES=require cargo test --all-features \
 cache, download if missing, skip if unreachable), `offline` (local only),
 `skip`, `require` (fail instead of skipping). `ENGRAM_FIXTURE_ROOT` points at
 a directory of `<fixture id>/` folders; `ENGRAM_FIXTURE_CACHE` overrides the
-download cache (default `%TEMP%/engram-fixtures`); `ENGRAM_FIXTURE_BASE_URL`
+download cache (default `<target>/tmp/engram-real-fixtures`);
+`ENGRAM_FIXTURE_BASE_URL`
 swaps the `https://huggingface.co/` origin for a mirror. Pinned bytes are
 verified by size + SHA-256; a checksum mismatch always fails, and verified
 files carry a stamp so repeat runs skip re-hashing.
@@ -37,7 +38,7 @@ files carry a stamp so repeat runs skip re-hashing.
 | | `Qwen/Qwen2.5-0.5B-Instruct-GGUF` | `9217f5db` | `qwen2.5-0.5b-instruct-q8_0.gguf` |
 | OLMoE-1B-7B-0125-Instruct (MoE) | `allenai/OLMoE-1B-7B-0125-Instruct` | `b89a7c4b` | 3 shards + index + `config.json` |
 | | `allenai/OLMoE-1B-7B-0125-Instruct-GGUF` | `2ac1d273` | `OLMoE-1B-7B-0125-Instruct-Q8_0.gguf` |
-| Qwen3.5-0.8B (hybrid, stretch) | `Qwen/Qwen3.5-0.8B` | `2fc06364` | `model.safetensors-00001-of-00001` + index + `config.json` |
+| Qwen3.5-0.8B (hybrid, stretch) | `Qwen/Qwen3.5-0.8B` | `2fc06364` | `model.safetensors-00001-of-00001.safetensors` + index + `config.json` |
 | | `unsloth/Qwen3.5-0.8B-GGUF` | `6ab46149` | `Qwen3.5-0.8B-Q8_0.gguf` |
 
 Full pinned revisions, sizes, and SHA-256s live in

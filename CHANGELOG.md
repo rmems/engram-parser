@@ -12,8 +12,8 @@ All notable changes to this project are documented in this file.
   in both GGUF and Safetensors, checks GGUF↔Safetensors structural parity
   (documenting format-specific naming and expert-stacking differences), and
   validates layer/expert counts against each model's `config.json` and GGUF
-  metadata. Qwen3.5's linear-attention, vision, and MTP tensors surface as
-  Unknown rather than guessed. The tests are `#[ignore]`d and opt-in via
+  metadata. Qwen3.5's unsupported linear-attention (`ssm_*`/`attn_gate`),
+  vision, and MTP tensors surface as Unknown rather than guessed. The tests are `#[ignore]`d and opt-in via
   `ENGRAM_REAL_FIXTURES` / `ENGRAM_FIXTURE_ROOT`; weights are never committed
   and CI never downloads them. Pins, run instructions, and observed results
   are in `docs/real-fixtures.md`.

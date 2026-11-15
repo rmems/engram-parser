@@ -41,7 +41,9 @@ use std::path::{Path, PathBuf};
 use engram_parser::analysis::transformer::{
     AttentionKind, FeedForwardKind, RoleScope, TensorRole, TransformerTopology, discover_topology,
 };
-use engram_parser::{load_gguf, open_checkpoint};
+use engram_parser::load_gguf;
+#[cfg(not(feature = "mmap"))]
+use engram_parser::open_checkpoint;
 use real_fixtures::{
     Config, FixtureFile, Mode, Outcome, RealFixture, Sha256, ensure, fixture_or_skip, sha256_hex,
     to_hex,
@@ -184,7 +186,17 @@ const QWEN35: ModelSpec = ModelSpec {
 /// from `config.json` `layer_types` (`full_attention_interval: 4`).
 const QWEN35_FULL_ATTENTION: [usize; 6] = [3, 7, 11, 15, 19, 23];
 
+/// One real checkpoint in RAM (or one mmap window) at a time: the largest
+/// fixture is ~14 GB, and the ignored tests otherwise open copies in
+/// parallel.
+static RUN_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn topology_of(path: &Path) -> TransformerTopology {
+    let _guard = RUN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    #[cfg(feature = "mmap")]
+    let ckpt = engram_parser::open_checkpoint_mmap(path)
+        .unwrap_or_else(|e| panic!("open {}: {e}", path.display()));
+    #[cfg(not(feature = "mmap"))]
     let ckpt = open_checkpoint(path).unwrap_or_else(|e| panic!("open {}: {e}", path.display()));
     discover_topology(&ckpt)
 }

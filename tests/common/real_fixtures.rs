@@ -508,6 +508,11 @@ fn download(fx: &RealFixture, cfg: &Config, dir: &Path) -> Result<(), DownloadEr
 
     for f in fx.files {
         let dest = dir.join(f.file_name());
+        // Resume after a failed multi-file download: an earlier file that
+        // already verifies does not need to be fetched again.
+        if dest.is_file() && verify_file(f, &dest, &stamps_dir(cfg)).is_ok() {
+            continue;
+        }
         let part = dir.join(format!("{}.{}.part", f.file_name(), std::process::id()));
         let url = fx.url(&cfg.base_url, f);
         eprintln!("{}: downloading {url} ({} bytes)", fx.id, f.size);
