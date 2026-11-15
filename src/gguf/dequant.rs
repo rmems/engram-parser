@@ -11,8 +11,9 @@
 //! [`super::tensor::GGML_TYPE_IQ3_M_BLOCK`].
 //!
 //! **IQ3_M provenance (RM-2012):** the 111-byte layout
-//! (`d` f16 + 32-byte `hmask` + 64-byte `qs` + 12 packed 6-bit `scales` +
-//! 1-byte `scales_h` ≈ `IQ3_S`'s 110 bytes plus one) was written in
+//! (`d` f16 + 32-byte `hmask` + 64-byte `qs` + a 12-byte field packing
+//! sixteen low 6-bit scale values + 1-byte `scales_h` carrying their high
+//! bits ≈ `IQ3_S`'s 110 bytes plus one) was written in
 //! corinth-canal PR #94 to read `qwen3-moe.i1-IQ3_M.gguf`, an
 //! ik_llama.cpp quant whose `general.file_type` is `MOSTLY_IQ3_M (27)` —
 //! a *file-level* label, not a tensor block type. ik_llama.cpp defines no
