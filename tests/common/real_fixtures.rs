@@ -31,7 +31,7 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
-use std::time::UNIX_EPOCH;
+use std::time::{Duration, UNIX_EPOCH};
 
 pub const ENV_MODE: &str = "ENGRAM_REAL_FIXTURES";
 pub const ENV_ROOT: &str = "ENGRAM_FIXTURE_ROOT";
@@ -505,9 +505,22 @@ fn verify_file(f: &FixtureFile, path: &Path, stamps: &Path) -> Result<(), String
 fn download(fx: &RealFixture, cfg: &Config, dir: &Path) -> Result<(), DownloadError> {
     let unavailable = |why: String| DownloadError::Unavailable(why);
     fs::create_dir_all(dir).map_err(|e| unavailable(format!("create {}: {e}", dir.display())))?;
-    // Stale partial files from killed runs only waste space.
+    // Stale partial files from killed runs only waste space. Anything
+    // older than curl's --max-time budget (30 min) plus margin provably
+    // cannot belong to a download still in flight in another process, so
+    // only those are removed — never a concurrent run's active part file.
+    const STALE_PART_AGE: Duration = Duration::from_secs(31 * 60);
     for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
-        if entry.file_name().to_string_lossy().ends_with(".part") {
+        if !entry.file_name().to_string_lossy().ends_with(".part") {
+            continue;
+        }
+        let stale = entry
+            .metadata()
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.elapsed().ok())
+            .is_some_and(|age| age > STALE_PART_AGE);
+        if stale {
             let _ = fs::remove_file(entry.path());
         }
     }
