@@ -65,3 +65,7 @@ push a release tag by hand.
 - `REVIEW.md` is the pre-merge quality gate. `CHANGELOG.md` is maintained.
 - Commit subjects use Conventional Commits with scopes (`fix(gguf):`, `feat(checkpoint):`,
   `api:`), usually with Linear IDs (`RM-1792`) and the PR number.
+- New PRs/issues for the ANN/SNN Hybrid project must be added to GitHub
+  Projects board #22 "ANN/SNN Hybrid" (`gh project item-add 22 --owner rmems
+  --url <pr-url>`) with Status `In Progress` while open, `Done` when merged.
+  The board mirrors engram-parser, cortex-tensor, and hybrid-fusion.
