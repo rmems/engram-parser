@@ -20,7 +20,7 @@
 //!
 //! ```bash
 //! # Pre-staged weights under <root>/<fixture id>/ (see docs/real-fixtures.md):
-//! ENGRAM_FIXTURE_ROOT=C:\models \
+//! ENGRAM_FIXTURE_ROOT=C:/models \
 //!   cargo test --all-features --test real_topology -- --ignored --nocapture
 //!
 //! # Or let the helper download the ~28 GB pin set into the cache:
