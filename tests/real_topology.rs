@@ -960,13 +960,29 @@ impl TempDir {
         Self(dir)
     }
 
-    /// `file://` URL of this directory.
+    /// `file://` URL of this directory. Paths with spaces or other
+    /// URL-reserved characters are percent-encoded so curl accepts them.
     fn file_url(&self) -> String {
         let p = self.0.to_string_lossy().replace('\\', "/");
-        if p.starts_with('/') {
-            format!("file://{p}")
+        let mut enc = String::with_capacity(p.len());
+        for b in p.bytes() {
+            match b {
+                b'A'..=b'Z'
+                | b'a'..=b'z'
+                | b'0'..=b'9'
+                | b'-'
+                | b'_'
+                | b'.'
+                | b'~'
+                | b'/'
+                | b':' => enc.push(b as char),
+                _ => enc.push_str(&format!("%{b:02X}")),
+            }
+        }
+        if enc.starts_with('/') {
+            format!("file://{enc}")
         } else {
-            format!("file:///{p}")
+            format!("file:///{enc}")
         }
     }
 }

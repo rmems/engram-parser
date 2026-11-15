@@ -505,6 +505,12 @@ fn verify_file(f: &FixtureFile, path: &Path, stamps: &Path) -> Result<(), String
 fn download(fx: &RealFixture, cfg: &Config, dir: &Path) -> Result<(), DownloadError> {
     let unavailable = |why: String| DownloadError::Unavailable(why);
     fs::create_dir_all(dir).map_err(|e| unavailable(format!("create {}: {e}", dir.display())))?;
+    // Stale partial files from killed runs only waste space.
+    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+        if entry.file_name().to_string_lossy().ends_with(".part") {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
 
     for f in fx.files {
         let dest = dir.join(f.file_name());
@@ -515,8 +521,19 @@ fn download(fx: &RealFixture, cfg: &Config, dir: &Path) -> Result<(), DownloadEr
         }
         let part = dir.join(format!("{}.{}.part", f.file_name(), std::process::id()));
         let url = fx.url(&cfg.base_url, f);
-        eprintln!("{}: downloading {url} ({} bytes)", fx.id, f.size);
+        // A dash-prefixed base URL would be parsed as curl options, and a
+        // URL with credentials must not end up in logs or error text.
+        if url.starts_with('-') {
+            return Err(unavailable(format!(
+                "{}: refusing dash-prefixed URL",
+                f.file
+            )));
+        }
+        let safe_url = sanitized_url(&url);
+        eprintln!("{}: downloading {safe_url} ({} bytes)", fx.id, f.size);
 
+        // A planted .part symlink must not make curl write outside the dir.
+        let _ = fs::remove_file(&part);
         let status = Command::new("curl")
             .args(["--fail", "--location", "--silent", "--show-error"])
             .args([
@@ -533,7 +550,7 @@ fn download(fx: &RealFixture, cfg: &Config, dir: &Path) -> Result<(), DownloadEr
             .status();
         let result = match status {
             Ok(s) if s.success() => Ok(()),
-            Ok(s) => Err(unavailable(format!("curl exited with {s} for {url}"))),
+            Ok(s) => Err(unavailable(format!("curl exited with {s} for {safe_url}"))),
             Err(e) => Err(unavailable(format!("cannot run curl: {e}"))),
         };
         if let Err(e) = result {
@@ -545,6 +562,8 @@ fn download(fx: &RealFixture, cfg: &Config, dir: &Path) -> Result<(), DownloadEr
             let _ = fs::remove_file(&part);
             return Err(DownloadError::Corrupt(why));
         }
+        // Windows rename refuses to replace an existing destination.
+        let _ = fs::remove_file(&dest);
         fs::rename(&part, &dest).map_err(|e| {
             let _ = fs::remove_file(&part);
             unavailable(format!("move into cache: {e}"))
@@ -558,6 +577,23 @@ fn download(fx: &RealFixture, cfg: &Config, dir: &Path) -> Result<(), DownloadEr
         }
         DirState::Corrupt { why, .. } => DownloadError::Corrupt(why),
     })
+}
+
+/// `scheme://host/path` with any `userinfo@` removed: mirror base URLs may
+/// carry credentials that must not land in logs or error strings.
+fn sanitized_url(url: &str) -> String {
+    match url.split_once("://") {
+        Some((scheme, rest)) => {
+            let (authority, path) = rest.split_once('/').map_or((rest, ""), |(a, p)| (a, p));
+            let host = authority.rsplit('@').next().unwrap_or(authority);
+            if path.is_empty() {
+                format!("{scheme}://{host}")
+            } else {
+                format!("{scheme}://{host}/{path}")
+            }
+        }
+        None => url.to_owned(),
+    }
 }
 
 fn check_bytes(f: &FixtureFile, path: &Path) -> Result<(), String> {
