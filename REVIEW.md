@@ -359,7 +359,7 @@ cargo run --locked --example benchmark --profile bench --features bench,cuda
 | Item | Where it belongs |
 |------|------------------|
 | CUDA / PTX / Nsight / real-model GPU benches | **blackwell-kernel-lab** (experiments) or myelin-accelerator |
-| Row dequant / mmap host load | corinth-canal (reference) or downstream |
+| Production row dequant / mmap host load | corinth-canal (reference) or downstream — engram's packed→f32 helpers remain the owned decode path for checkpoint consumers (RM-2212) |
 | HF `config.json` policy | corinth-canal (reference) — not ported here, see #10 |
 | Routing / MoE matmul / generation | cortex-tensor / hybrid stack |
 | Optional myelin dep on this crate | **Never** — keeps zero-dep charter |
