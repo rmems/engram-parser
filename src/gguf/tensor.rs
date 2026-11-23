@@ -90,6 +90,12 @@ pub const GGML_TYPE_Q4_0_4_4: u32 = 31;
 /// Not a GGUF wire type: HuggingFace “IQ3_M” is a mixed-quant *preset*, not
 /// type id 31. Production GGUFs never emit this code; synthetic fixtures and
 /// [`crate::dequantize_iq3_m`] use it. ASCII `'II3M'`.
+///
+/// Provenance (RM-2012): the layout was written in corinth-canal PR #94 to
+/// read ik_llama.cpp `MOSTLY_IQ3_M (27)` *file-type* checkpoints, which in
+/// fact store standard ik_llama blocks (no writer emits 111-byte blocks).
+/// Internal-only with no known external producer — regression-locked, not
+/// reference-quality dequantization.
 pub const GGML_TYPE_IQ3_M_BLOCK: u32 = 0x4949_334D;
 
 // ---------------------------------------------------------------------------
@@ -222,7 +228,9 @@ pub enum DType {
     /// 64-bit signed integer (`GGML_TYPE_I64 = 27`).
     I64,
     /// Internal 111-byte IQ3_M block layout ([`GGML_TYPE_IQ3_M_BLOCK`]).
-    /// Not GGUF wire type 31.
+    /// Not GGUF wire type 31. Internal-only: no known external producer
+    /// (see [`GGML_TYPE_IQ3_M_BLOCK`]); regression-locked, not reference
+    /// dequantization.
     IQ3_M_BLOCK,
     /// Any other GGML dtype not explicitly enumerated above. The raw
     /// `u32` code is preserved so callers can dispatch on it.

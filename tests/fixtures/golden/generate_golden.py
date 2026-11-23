@@ -15,7 +15,7 @@ therefore *conformance* vectors against an external reference.
 IQ3_M is an internal 111-byte block layout, not a GGUF wire type; its
 vectors are a literal port of `dequantize_row_iq3_m` and only lock in
 current behavior as a *regression* check (they prove nothing about
-external conformance).
+external conformance — no producer or reference decoder exists; RM-2012).
 
 Usage:
 

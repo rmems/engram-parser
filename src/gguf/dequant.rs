@@ -9,6 +9,19 @@
 //! Wire 31 remains historical [`super::tensor::GGML_TYPE_Q4_0_4_4`]. The
 //! 111-byte IQ3_M block decoder uses the internal non-wire id
 //! [`super::tensor::GGML_TYPE_IQ3_M_BLOCK`].
+//!
+//! **IQ3_M provenance (RM-2012):** the 111-byte layout
+//! (`d` f16 + 32-byte `hmask` + 64-byte `qs` + a 12-byte field packing
+//! sixteen low 6-bit scale values + 1-byte `scales_h` carrying their high
+//! bits ≈ `IQ3_S`'s 110 bytes plus one) was written in
+//! corinth-canal PR #94 to read `qwen3-moe.i1-IQ3_M.gguf`, an
+//! ik_llama.cpp quant whose `general.file_type` is `MOSTLY_IQ3_M (27)` —
+//! a *file-level* label, not a tensor block type. ik_llama.cpp defines no
+//! 111-byte block (IQ3_XXS is 98, IQ3_S is 110); real `MOSTLY_IQ3_M`
+//! files carry standard block types. **No known producer emits this
+//! layout**, so conformance cannot be verified — the decoder is
+//! internal-only and locked by golden regression vectors. Callers should
+//! not treat `IQ3_M_BLOCK` output as reference-quality dequantization.
 
 use super::tensor::{
     DType, GGML_TYPE_IQ3_M_BLOCK, GGML_TYPE_Q2_K, GGML_TYPE_Q3_K, GGML_TYPE_Q4_0, GGML_TYPE_Q4_1,
@@ -148,7 +161,12 @@ pub fn dequantize_q6_k(packed: &[u8], dims: &[usize]) -> Result<Vec<f32>> {
 
 /// Dequantize packed IQ3_M *block-layout* bytes (111 bytes / 256 values) to `f32`.
 ///
-/// This is **not** GGUF wire type 31 (`Q4_0_4_4`). See [`GGML_TYPE_IQ3_M_BLOCK`].
+/// This is **not** GGUF wire type 31 (`Q4_0_4_4`). See [`GGML_TYPE_IQ3_M_BLOCK`]
+/// for the provenance: the layout is internal-only with **no known external
+/// producer** — it was written for an ik_llama.cpp `MOSTLY_IQ3_M` file type
+/// that actually stores standard blocks. It stays on the public surface for
+/// corinth-canal lineage compatibility and is locked by golden regression
+/// vectors only; do not treat its output as reference dequantization.
 pub fn dequantize_iq3_m(packed: &[u8], dims: &[usize]) -> Result<Vec<f32>> {
     dequantize_rows(
         packed,

@@ -219,7 +219,7 @@ Layout-aware parsing (**packed byte sizes**; plus the K-quant dequant helpers be
 - `Q4_0`, `Q4_1`, `Q5_0`, `Q5_1`, `Q8_0`, `Q8_1`;
 - K-quants `Q2_K`, `Q3_K`, `Q4_K`, `Q5_K`, `Q6_K`, `Q8_K`;
 - IQ packed layouts including `IQ2_XXS`, `IQ2_XS`, `IQ2_S`, `IQ3_XXS`, `IQ3_S`, `IQ1_S`, `IQ1_M`, `IQ4_NL`, `IQ4_XS`;
-- Internal `IQ3_M_BLOCK` (111 bytes / 256 values) — **not** wire type 31.
+- Internal `IQ3_M_BLOCK` (111 bytes / 256 values) — **not** wire type 31; internal-only layout with no known external producer (RM-2012).
 
 Remaining codes use `DType::Other(u32)`. Unknown packed layouts fail closed when element count cannot be converted to a modeled byte length.
 
@@ -230,6 +230,8 @@ Numeric helpers: `dequantize_f16`, `dequantize_bf16`, `dequantize_bf16_bytes`, `
 GGUF stores each tensor dtype as a `ggml_type` integer. `engram-parser` maps those codes to labels and packed byte sizes so payload and MoE slices remain in range. Packed dequant is implemented for Q4_0, Q4_1, Q8_0, Q2_K, Q3_K, Q4_K, Q5_K, Q6_K, and the internal IQ3_M **block** id — not a GGML runtime.
 
 Historical wire type **31** is `Q4_0_4_4`, **not** the Hugging Face preset name "IQ3_M". HuggingFace IQ3_M is a mixed-quant preset; the 111-byte block decoder uses internal `GGML_TYPE_IQ3_M_BLOCK` (`0x4949334D`). Wire 31 still has no packed byte-size model (`DType::Other(31)`), so such a checkpoint is labeled correctly but rejected during layout parsing.
+
+The 111-byte IQ3_M layout is **internal-only with no known external producer** (RM-2012): it was written in corinth-canal PR #94 for an ik_llama.cpp `MOSTLY_IQ3_M` *file-type* checkpoint whose tensors actually use standard ik_llama blocks (no writer emits 111-byte blocks). The decoder is kept for lineage compatibility and is locked by golden regression vectors only — it is not verified conformance.
 
 ## Public API
 
