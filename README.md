@@ -15,7 +15,7 @@ Pure-Rust **GGUF + Safetensors checkpoint/tensor substrate** with optional forma
 >
 > **mmap / K-quant status:** shipped. Default `load_gguf` still uses `fs::read`. Enable `--features mmap` for `load_gguf_mmap` (`memmap2`). Packed dequant for Q4_0 / Q4_1 / Q8_0 / Q2_K / Q3_K / Q4_K / Q5_K / Q6_K / IQ3_M is on the default crate. CUDA host-register is out of scope.
 >
-> **Ownership:** engram-parser owns checkpoint format parsing, mmap policy, and packed→f32 dequant (Q4_0 / Q4_1 / Q8_0 / Q2_K / Q3_K / Q4_K / Q5_K / Q6_K / IQ3_M block); consumers such as cortex-tensor call it rather than decoding packed weights in-tree.
+> **Ownership:** engram-parser owns checkpoint format parsing, mmap policy, and packed→f32 dequant (Q4_0 / Q4_1 / Q8_0 / Q2_K / Q3_K / Q4_K / Q5_K / Q6_K / IQ3_M block); consumers such as cortex-hybrid call it rather than decoding packed weights in-tree.
 
 ## Install
 
