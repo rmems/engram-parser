@@ -14,6 +14,8 @@ Pure-Rust **GGUF + Safetensors checkpoint/tensor substrate** with optional forma
 > **Safetensors status:** shipped behind `--features safetensors`. Default builds are GGUF-only. Raw payload reads are bounded per-tensor; enable `--features safetensors,mmap` for borrowed mmap-backed access. No Hugging Face `config.json` policy.
 >
 > **mmap / K-quant status:** shipped. Default `load_gguf` still uses `fs::read`. Enable `--features mmap` for `load_gguf_mmap` (`memmap2`). Packed dequant for Q4_0 / Q4_1 / Q8_0 / Q2_K / Q3_K / Q4_K / Q5_K / Q6_K / IQ3_M is on the default crate. CUDA host-register is out of scope.
+>
+> **Ownership:** engram-parser owns checkpoint format parsing, mmap policy, and packed→f32 dequant (Q4_0 / Q4_1 / Q8_0 / Q2_K / Q3_K / Q4_K / Q5_K / Q6_K / IQ3_M block); consumers such as cortex-tensor call it rather than decoding packed weights in-tree.
 
 ## Install
 
@@ -223,7 +225,7 @@ Layout-aware parsing (**packed byte sizes**; plus the K-quant dequant helpers be
 
 Remaining codes use `DType::Other(u32)`. Unknown packed layouts fail closed when element count cannot be converted to a modeled byte length.
 
-Numeric helpers: `dequantize_f16`, `dequantize_bf16`, `dequantize_bf16_bytes`, `dequantize_q4_0`, `dequantize_q4_1`, `dequantize_q8_0`, `dequantize_q2_k`, `dequantize_q3_k`, `dequantize_q4_k`, `dequantize_q5_k`, `dequantize_q6_k`, `dequantize_iq3_m`. The parser's primary contract is still layout/raw bytes; these unpackers are optional CPU helpers, not a GGML compute path.
+Numeric helpers: `dequantize_f16`, `dequantize_bf16`, `dequantize_bf16_bytes`, `dequantize_q4_0`, `dequantize_q4_1`, `dequantize_q8_0`, `dequantize_q2_k`, `dequantize_q3_k`, `dequantize_q4_k`, `dequantize_q5_k`, `dequantize_q6_k`, `dequantize_iq3_m`. The parser's primary contract is still layout/raw bytes; these unpackers are the crate's owned packed→f32 decode path — CPU helpers for consumers, not a GGML compute path.
 
 ### GGUF wire types vs "GGML"
 

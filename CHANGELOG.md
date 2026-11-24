@@ -84,6 +84,14 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- **Ownership documented ([RM-2212](https://linear.app/rpd-34/issue/RM-2212)):**
+  `README.md` and the crate-level docs in `src/lib.rs` now state explicitly
+  that engram-parser owns checkpoint format parsing, mmap policy, and
+  packed→f32 dequant (Q4_0 / Q4_1 / Q8_0 / Q2_K / Q3_K / Q4_K / Q5_K /
+  Q6_K / IQ3_M block), and that consumers such as cortex-tensor call it
+  rather than decoding packed weights in-tree. The dequant helpers are
+  described as the crate's owned decode path instead of "optional CPU
+  helpers".
 - **IQ3_M block decoder documented as internal-only ([RM-2012](https://linear.app/rpd-34/issue/RM-2012)):**
   recorded the 111-byte layout's provenance in `dequant.rs`, `tensor.rs`, and
   `README.md` — it was written in corinth-canal PR #94 to read an

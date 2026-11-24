@@ -22,6 +22,11 @@
 //! [`GgufLayout`]. Both are built above the parsers; neither is the
 //! identity of the crate.
 //!
+//! Ownership: this crate owns checkpoint format parsing, mmap policy, and
+//! packed→f32 dequant (Q4_0 / Q4_1 / Q8_0 / Q2_K / Q3_K / Q4_K / Q5_K /
+//! Q6_K / IQ3_M block). Consumers such as cortex-tensor call it rather
+//! than decoding packed weights in-tree.
+//!
 //! # Features
 //!
 //! - **No dependencies enabled by default**: the default path is pure Rust.
