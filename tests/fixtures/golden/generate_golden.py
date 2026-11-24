@@ -222,9 +222,11 @@ def dequant_q4_k(blocks):
     return out
 
 
-# NOTE: every dtype above is confirmed bit-exact against an independent
-# implementation via the gguf-py oracle in ./oracle (generate_oracle.py; the
-# pinned tool and version live in oracle/provenance.json) — RM-2209.
+# NOTE: every GGUF wire dtype above (all but iq3_m) is confirmed bit-exact
+# against an independent implementation via the gguf-py oracle in ./oracle
+# (generate_oracle.py; the pinned tool and version live in
+# oracle/provenance.json) — RM-2209. iq3_m has no external implementation and
+# stays regression-only (RM-2012).
 # New dtypes are appended so the shared PRNG stream (and therefore the
 # existing fixtures) stay byte-identical when regenerated.
 TYPES = {

@@ -63,10 +63,12 @@ def main():
     actual = importlib.metadata.version('gguf')
     if actual != PINNED:
         print(
-            f'warning: gguf {actual} != pinned {PINNED}; '
-            'vectors may differ from those checked in',
+            f'error: gguf {actual} != pinned {PINNED}; install the pinned '
+            'version to reproduce the checked-in vectors exactly.\n'
+            f'  pip install gguf=={PINNED}',
             file=sys.stderr,
         )
+        sys.exit(1)
     os.makedirs(OUT, exist_ok=True)
     vectors = {}
     for name, (member, bsize) in TYPES.items():
@@ -75,7 +77,7 @@ def main():
             packed = f.read()
         blocks = np.frombuffer(packed, dtype=np.uint8).reshape(-1, bsize)
         data = np.asarray(
-            dequantize(blocks, GGMLQuantizationType[member]), dtype=np.float32
+            dequantize(blocks, GGMLQuantizationType[member]), dtype='<f4'
         ).ravel().tobytes()
         out_path = os.path.join(OUT, f'{name}.bin')
         with open(out_path, 'wb') as f:
