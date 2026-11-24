@@ -6,6 +6,17 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- **Independent gguf-py dequant oracle ([RM-2209](https://linear.app/rpd-34/issue/RM-2209)):**
+  `tests/fixtures/golden/generate_oracle.py` writes `oracle/<dtype>.bin`
+  vectors for all eight GGUF wire dtypes by decoding the same packed
+  fixtures with `gguf.quants` (gguf-py `0.19.0`, llama.cpp's in-tree numpy
+  decoders — an implementation this repo does not author).
+  `oracle/provenance.json` records the pinned/actual tool versions and a
+  SHA-256 per vector. `tests/golden_dequant.rs` asserts bit-exact agreement
+  between the oracle and the existing goldens, upgrading the Q4_0/Q4_1/
+  Q2_K/Q3_K/Q4_K vectors from cross-implementation to externally-confirmed
+  conformance vectors. IQ3_M stays regression-only (internal 111-byte
+  layout, no external implementation — RM-2012).
 - **Real-checkpoint topology tests ([RM-1800](https://linear.app/rpd-34/issue/RM-1800) / RM-2367 pin set):**
   `tests/real_topology.rs` runs `discover_topology` on the pinned Qwen3-0.6B,
   Qwen2.5-0.5B-Instruct, OLMoE-1B-7B-0125-Instruct, and Qwen3.5-0.8B fixtures

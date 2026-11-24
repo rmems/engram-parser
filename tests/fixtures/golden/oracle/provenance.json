@@ -1,0 +1,67 @@
+{
+  "issue": "RM-2209",
+  "tool": "gguf-py (ggml-org/llama.cpp in-tree Python package, PyPI `gguf`)",
+  "decoder": "gguf.quants.dequantize",
+  "tool_version_pinned": "0.19.0",
+  "tool_version_actual": "0.19.0",
+  "numpy_version": "2.5.5",
+  "notes": "IQ3_M has no upstream implementation (internal 111-byte layout; RM-2012) and therefore no oracle vector.",
+  "vectors": {
+    "q8_0": {
+      "input": "q8_0.packed.bin",
+      "input_sha256": "cdf29adea5b313208f8f0912fd7556ee6f169bf541dc1a783bfc9c0ca457ebd0",
+      "output": "oracle/q8_0.bin",
+      "output_sha256": "0942d3c18065d8e7efaba4a10ec64366722d414a3e2154fc3e02e527b8eff616",
+      "elements": 128
+    },
+    "q5_k": {
+      "input": "q5_k.packed.bin",
+      "input_sha256": "08c6caa426c39542deb481a6a6943b3fbd89bff3d190aad6f02b1f30c5606898",
+      "output": "oracle/q5_k.bin",
+      "output_sha256": "5808d5f1dd7f1ae4077eea76f9f93306c33bd295898244eb63bdb7a1be7eb6c0",
+      "elements": 1024
+    },
+    "q6_k": {
+      "input": "q6_k.packed.bin",
+      "input_sha256": "42df0eb1b22e9d9095daca3c252248bb04d64ffe6c9db042a84f3c03ec6cc272",
+      "output": "oracle/q6_k.bin",
+      "output_sha256": "361b51aa6182d5b33dbca19a396487c0581550fe56f72062b9e2f28a2e5031c4",
+      "elements": 1024
+    },
+    "q4_0": {
+      "input": "q4_0.packed.bin",
+      "input_sha256": "6175bcdf721a5d4a01cb8567af7994b55f0fe42464aa762a9aa0f7f62ab3904f",
+      "output": "oracle/q4_0.bin",
+      "output_sha256": "f8f556e54eaf860f487b571e2be4d442a58744b243678ccce37039e7a69e462a",
+      "elements": 128
+    },
+    "q4_1": {
+      "input": "q4_1.packed.bin",
+      "input_sha256": "4242b71075d6f53ecaa8713b0396adc1bd3d8c2f4212263533a344fbae974947",
+      "output": "oracle/q4_1.bin",
+      "output_sha256": "fa4d836f8af1495f4f02b48d901895094bb81a7aacd99fa38d67007b9636ec55",
+      "elements": 128
+    },
+    "q2_k": {
+      "input": "q2_k.packed.bin",
+      "input_sha256": "b1117d14270d2cc1dd95dcce79464e0a3239ee8f3fe5ecd9e9b17c12bcd6eb62",
+      "output": "oracle/q2_k.bin",
+      "output_sha256": "0a572b9b07ba55b6ef11aba1d93f45e1b668bf2735ae9fd98f88f5c93efacf3c",
+      "elements": 1024
+    },
+    "q3_k": {
+      "input": "q3_k.packed.bin",
+      "input_sha256": "19af86430bb41716a9389396a78436e2eed10da55e81a423442c9ccb0dafae99",
+      "output": "oracle/q3_k.bin",
+      "output_sha256": "69ca2476339de0e7e9434aff525c06ac3ac26e07090cd405b6e010b4d76f4b05",
+      "elements": 1024
+    },
+    "q4_k": {
+      "input": "q4_k.packed.bin",
+      "input_sha256": "4336182898d33b5e76a9bbdc29cb768ed9bae4013d7523b08d6803555110f7eb",
+      "output": "oracle/q4_k.bin",
+      "output_sha256": "6b6df38ee9b19be0e9c6a74281c7575c47beb79c94a39cd6e5f5023a73e90953",
+      "elements": 1024
+    }
+  }
+}

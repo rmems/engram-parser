@@ -8,9 +8,10 @@ For each supported packed dtype this writes:
   <name>.expected.bin  -- expected f32 outputs, little-endian IEEE-754
 
 The expected outputs are produced by a bit-exact Python port of the
-llama.cpp scalar decoders (dequantize_row_q8_0 / q5_K / q6_K in
-ggml/src/ggml-quants.c, tag b4800). The Q8_0, Q5_K, and Q6_K vectors are
-therefore *conformance* vectors against an external reference.
+llama.cpp scalar decoders (dequantize_row_q8_0 / q5_K / q6_K etc. in
+ggml/src/ggml-quants.c, tag b4800). Every wire-dtype vector is additionally
+confirmed bit-exact by the independent gguf-py oracle in ./oracle
+(generate_oracle.py; see oracle/provenance.json — RM-2209).
 
 IQ3_M is an internal 111-byte block layout, not a GGUF wire type; its
 vectors are a literal port of `dequantize_row_iq3_m` and only lock in
@@ -221,9 +222,9 @@ def dequant_q4_k(blocks):
     return out
 
 
-# NOTE: the q4_0/q4_1/q2_k/q3_k/q4_k decoders above are Python ports of the ggml
-# loops (per-op f32 rounding); they have not yet been diffed against a llama.cpp
-# build's output. Record the reference revision here once that is done.
+# NOTE: every dtype above is confirmed bit-exact against an independent
+# implementation via the gguf-py oracle in ./oracle (generate_oracle.py; the
+# pinned tool and version live in oracle/provenance.json) — RM-2209.
 # New dtypes are appended so the shared PRNG stream (and therefore the
 # existing fixtures) stay byte-identical when regenerated.
 TYPES = {
