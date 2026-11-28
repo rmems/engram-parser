@@ -45,8 +45,8 @@ use engram_parser::load_gguf;
 #[cfg(not(feature = "mmap"))]
 use engram_parser::open_checkpoint;
 use real_fixtures::{
-    Config, FixtureFile, Mode, Outcome, RealFixture, Sha256, ensure, fixture_or_skip, sha256_hex,
-    to_hex,
+    Config, FixtureFile, FixtureFileKind, FixtureTier, Mode, Outcome, RealFixture, Sha256, ensure,
+    fixture_or_skip, sha256_hex, to_hex,
 };
 use real_fixtures::{
     OLMOE_GGUF, OLMOE_SAFETENSORS, QWEN3_GGUF, QWEN3_SAFETENSORS, QWEN25_GGUF, QWEN25_SAFETENSORS,
@@ -1011,11 +1011,13 @@ fn mirrored(
     fs::write(dir.join("w.gguf"), body).expect("write origin");
     let f = FixtureFile {
         file: "w.gguf",
+        kind: FixtureFileKind::Weights("Q8_0"),
         sha256: leak(claimed_sha.map_or_else(|| sha256_hex(body), str::to_owned)),
         size: body.len() as u64,
     };
     RealFixture {
         id,
+        tier: FixtureTier::Baseline,
         repo: "org/model",
         revision,
         license: "mit",
@@ -1068,23 +1070,42 @@ fn fetch_downloads_verifies_and_reuses_the_cache() {
     assert_eq!(fs::read(dir.join("w.gguf")).unwrap(), b"pinned weights");
     assert!(dir.starts_with(&cache.0));
 
-    // Origin gone: the verified cache entry alone must satisfy offline mode.
-    fs::remove_dir_all(mirror.0.join("org")).unwrap();
     assert_eq!(
         ensure(fx, &cfg(Mode::Offline, &cache, &mirror)),
         Outcome::Ready(dir.clone())
     );
 
-    // Corrupt the cache (same length): dropped, then offline skips.
-    fs::write(dir.join("w.gguf"), b"pinned WEIGHTS").unwrap();
-    assert!(matches!(
-        ensure(fx, &cfg(Mode::Offline, &cache, &mirror)),
-        Outcome::Skipped(_)
-    ));
-    assert!(
-        !dir.join("w.gguf").exists(),
-        "corrupt cache entry must be removed"
+    // Auto repair replaces only with newly verified bytes.
+    let path = dir.join("w.gguf");
+    fs::write(&path, b"wrong length").unwrap();
+    assert_eq!(
+        ensure(fx, &cfg(Mode::Auto, &cache, &mirror)),
+        Outcome::Ready(dir)
     );
+    assert_eq!(fs::read(&path).unwrap(), b"pinned weights");
+
+    // A failed repair must not convert a known bad cache file into a skip.
+    fs::remove_dir_all(mirror.0.join("org")).unwrap();
+    fs::write(&path, b"wrong length").unwrap();
+    assert!(catch_unwind(|| ensure(fx, &cfg(Mode::Auto, &cache, &mirror))).is_err());
+    assert_eq!(fs::read(&path).unwrap(), b"wrong length");
+}
+
+#[test]
+fn offline_cache_distinguishes_missing_from_corrupt() {
+    let (mirror, cache) = (TempDir::new("m-corrupt"), TempDir::new("c-corrupt"));
+    let fx = Box::leak(Box::new(mirrored(&mirror, "synth-corrupt", b"abc", None)));
+    let config = cfg(Mode::Offline, &cache, &mirror);
+    let dir = fx.fixture_dir(&cache.0);
+    fs::create_dir_all(&dir).unwrap();
+    assert!(matches!(ensure(fx, &config), Outcome::Skipped(_)));
+
+    let path = dir.join("w.gguf");
+    for corrupt in [b"x".as_slice(), b"xyz"] {
+        fs::write(&path, corrupt).unwrap();
+        assert!(catch_unwind(|| ensure(fx, &config)).is_err());
+        assert_eq!(fs::read(&path).unwrap(), corrupt);
+    }
 }
 
 #[test]

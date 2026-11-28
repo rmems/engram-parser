@@ -25,8 +25,11 @@ a directory of `<fixture id>/` folders; `ENGRAM_FIXTURE_CACHE` overrides the
 download cache (default `<target>/tmp/engram-real-fixtures`);
 `ENGRAM_FIXTURE_BASE_URL`
 swaps the `https://huggingface.co/` origin for a mirror. Pinned bytes are
-verified by size + SHA-256; a checksum mismatch always fails, and verified
-files carry a stamp so repeat runs skip re-hashing.
+verified by size and SHA-256, then stamped so repeat runs can skip re-hashing.
+A mismatch in pre-staged or newly downloaded files fails. A corrupt cache
+entry fails in offline mode without removing the file. In auto or
+require mode the helper tries to replace it with verified bytes and fails
+if the repair cannot finish.
 
 ## Pin set
 
@@ -43,7 +46,6 @@ files carry a stamp so repeat runs skip re-hashing.
 
 Full pinned revisions, sizes, and SHA-256s live in
 `tests/common/real_fixtures.rs`.
-
 
 ## Shared manifest and preflight (RM-2367)
 
@@ -74,7 +76,10 @@ ENGRAM_FIXTURE_ROOT=/models ENGRAM_REAL_FIXTURES=require \
 ```
 
 The other baseline filters are `qwen3_fixture_preflight` (~2.14 GB) and
-`olmoe_fixture_preflight` (~21.20 GB). A size or SHA-256 mismatch always fails.
+`olmoe_fixture_preflight` (~21.20 GB). Cache-only preflight skips missing pins
+but fails on a detected size or SHA-256 mismatch in pre-staged files or
+the download cache. `require` permits repairing a cache mismatch by
+downloading a verified replacement; it never skips.
 
 ### Numeric parity is not established
 

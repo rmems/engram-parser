@@ -19,9 +19,10 @@
 //! | `ENGRAM_FIXTURE_CACHE` | Download cache directory. Default: `<target>/tmp/engram-real-fixtures`. |
 //! | `ENGRAM_FIXTURE_BASE_URL` | Origin replacing `https://huggingface.co` (mirror, or a `file://` tree). |
 //!
-//! A digest mismatch is never skipped: it means the pin or the bytes are
-//! wrong. A root directory that is only partially populated falls back to the
-//! normal cache/download path rather than using an incomplete model.
+//! Staged or newly downloaded bytes that fail verification are an error.
+//! A corrupt cache entry fails in offline mode; modes that permit a download
+//! try to replace it with verified bytes and fail if the repair cannot finish.
+//! A root that is only partly populated falls back to the cache/download path.
 
 #![allow(dead_code)]
 
@@ -39,11 +40,37 @@ pub const ENV_CACHE: &str = "ENGRAM_FIXTURE_CACHE";
 pub const ENV_BASE_URL: &str = "ENGRAM_FIXTURE_BASE_URL";
 pub const DEFAULT_BASE_URL: &str = "https://huggingface.co";
 
+/// Coverage tier of a pinned fixture.
+#[derive(Debug, Clone, Copy)]
+pub enum FixtureTier {
+    Baseline,
+    Stretch,
+}
+
+impl FixtureTier {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Baseline => "baseline",
+            Self::Stretch => "stretch",
+        }
+    }
+}
+
+/// Pinned role of a fixture file, independent of its name.
+#[derive(Debug, Clone, Copy)]
+pub enum FixtureFileKind {
+    /// Artifact-level weight format (individual tensors can use other dtypes).
+    Weights(&'static str),
+    ShardIndex,
+    Sidecar,
+}
+
 /// One file of a pinned fixture.
 #[derive(Debug, Clone, Copy)]
 pub struct FixtureFile {
     /// Path of the file inside the repo (flat names only).
     pub file: &'static str,
+    pub kind: FixtureFileKind,
     /// Lowercase hex SHA-256 of the file.
     pub sha256: &'static str,
     /// Exact size in bytes.
@@ -56,7 +83,14 @@ impl FixtureFile {
     }
 
     pub fn is_weights(&self) -> bool {
-        self.file.ends_with(".gguf") || self.file.ends_with(".safetensors")
+        matches!(self.kind, FixtureFileKind::Weights(_))
+    }
+
+    pub fn dtype_label(&self) -> &'static str {
+        match self.kind {
+            FixtureFileKind::Weights(dtype) => dtype,
+            FixtureFileKind::ShardIndex | FixtureFileKind::Sidecar => "metadata",
+        }
     }
 }
 
@@ -65,6 +99,7 @@ impl FixtureFile {
 pub struct RealFixture {
     /// Short stable label used in logs and `<root>/<id>` lookups.
     pub id: &'static str,
+    pub tier: FixtureTier,
     /// Repo id, e.g. `Qwen/Qwen3-0.6B-GGUF`.
     pub repo: &'static str,
     /// Full 40-hex commit the files are pinned to (never a branch name).
@@ -76,18 +111,33 @@ pub struct RealFixture {
     pub files: &'static [FixtureFile],
 }
 
-const fn file(file: &'static str, sha256: &'static str, size: u64) -> FixtureFile {
-    FixtureFile { file, sha256, size }
+const fn file(
+    file: &'static str,
+    kind: FixtureFileKind,
+    sha256: &'static str,
+    size: u64,
+) -> FixtureFile {
+    FixtureFile {
+        file,
+        kind,
+        sha256,
+        size,
+    }
 }
+
+use FixtureFileKind::{ShardIndex, Sidecar, Weights};
+use FixtureTier::{Baseline, Stretch};
 
 /// Qwen3-0.6B dense baseline, GGUF Q8_0 (llama.cpp `blk.N` naming).
 pub const QWEN3_GGUF: RealFixture = RealFixture {
     id: "qwen3-0.6b-gguf",
+    tier: Baseline,
     repo: "Qwen/Qwen3-0.6B-GGUF",
     revision: "23749fefcc72300e3a2ad315e1317431b06b590a",
     license: "apache-2.0",
     files: &[file(
         "Qwen3-0.6B-Q8_0.gguf",
+        Weights("Q8_0"),
         "9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031",
         639_446_688,
     )],
@@ -96,17 +146,20 @@ pub const QWEN3_GGUF: RealFixture = RealFixture {
 /// The same dense model as Safetensors (BF16) plus its `config.json`.
 pub const QWEN3_SAFETENSORS: RealFixture = RealFixture {
     id: "qwen3-0.6b",
+    tier: Baseline,
     repo: "Qwen/Qwen3-0.6B",
     revision: "c1899de289a04d12100db370d81485cdf75e47ca",
     license: "apache-2.0",
     files: &[
         file(
             "model.safetensors",
+            Weights("BF16"),
             "f47f71177f32bcd101b7573ec9171e6a57f4f4d31148d38e382306f42996874b",
             1_503_300_328,
         ),
         file(
             "config.json",
+            Sidecar,
             "660db3b73d788119c04535e48cf9be5f55bc3100841a718637ae695b442f27dd",
             726,
         ),
@@ -116,11 +169,13 @@ pub const QWEN3_SAFETENSORS: RealFixture = RealFixture {
 /// Qwen2.5-0.5B-Instruct dense baseline (older layout, QKV biases), GGUF Q8_0.
 pub const QWEN25_GGUF: RealFixture = RealFixture {
     id: "qwen2.5-0.5b-instruct-gguf",
+    tier: Baseline,
     repo: "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
     revision: "9217f5db79a29953eb74d5343926648285ec7e67",
     license: "apache-2.0",
     files: &[file(
         "qwen2.5-0.5b-instruct-q8_0.gguf",
+        Weights("Q8_0"),
         "ca59ca7f13d0e15a8cfa77bd17e65d24f6844b554a7b6c12e07a5f89ff76844e",
         675_710_816,
     )],
@@ -129,17 +184,20 @@ pub const QWEN25_GGUF: RealFixture = RealFixture {
 /// The same dense model as Safetensors (BF16) plus its `config.json`.
 pub const QWEN25_SAFETENSORS: RealFixture = RealFixture {
     id: "qwen2.5-0.5b-instruct",
+    tier: Baseline,
     repo: "Qwen/Qwen2.5-0.5B-Instruct",
     revision: "7ae557604adf67be50417f59c2c2f167def9a775",
     license: "apache-2.0",
     files: &[
         file(
             "model.safetensors",
+            Weights("BF16"),
             "fdf756fa7fcbe7404d5c60e26bff1a0c8b8aa1f72ced49e7dd0210fe288fb7fe",
             988_097_824,
         ),
         file(
             "config.json",
+            Sidecar,
             "18e18afcaccafade98daf13a54092927904649e1dd4eba8299ab717d5d94ff45",
             659,
         ),
@@ -149,11 +207,13 @@ pub const QWEN25_SAFETENSORS: RealFixture = RealFixture {
 /// OLMoE-1B-7B-0125-Instruct MoE baseline, GGUF Q8_0 (stacked `*_exps`).
 pub const OLMOE_GGUF: RealFixture = RealFixture {
     id: "olmoe-0125-instruct-gguf",
+    tier: Baseline,
     repo: "allenai/OLMoE-1B-7B-0125-Instruct-GGUF",
     revision: "2ac1d27317927518c9ef7bd99f91f3f1e4ee288d",
     license: "apache-2.0",
     files: &[file(
         "OLMoE-1B-7B-0125-Instruct-Q8_0.gguf",
+        Weights("Q8_0"),
         "d4e5c4f4925fc3b685b77f6f04a2647d964b768127d329a7cd421ca8e8259f39",
         7_359_942_656,
     )],
@@ -163,32 +223,38 @@ pub const OLMOE_GGUF: RealFixture = RealFixture {
 /// `config.json` (per-expert `gate_proj`/`up_proj`/`down_proj`, BF16).
 pub const OLMOE_SAFETENSORS: RealFixture = RealFixture {
     id: "olmoe-0125-instruct",
+    tier: Baseline,
     repo: "allenai/OLMoE-1B-7B-0125-Instruct",
     revision: "b89a7c4bc24fb9e55ce2543c9458ce0ca5c4650e",
     license: "apache-2.0",
     files: &[
         file(
             "model-00001-of-00003.safetensors",
+            Weights("BF16"),
             "61874210ca7c360f43f8c622cecc12441083d40190eae3b56bc9d6e1c0a30c1e",
             4_997_744_872,
         ),
         file(
             "model-00002-of-00003.safetensors",
+            Weights("BF16"),
             "c523a43b8a17269d5fab33395048a83633f4d1d89c1958570cea738e2bbe80c9",
             4_997_235_176,
         ),
         file(
             "model-00003-of-00003.safetensors",
+            Weights("BF16"),
             "97ae01e3519c52e63a018bca96ab17a89c4cd5cab1c6d742efed0fa5c0e2bb17",
             3_843_741_912,
         ),
         file(
             "model.safetensors.index.json",
+            ShardIndex,
             "0e2e1e0d8d357ac7af817cff28410c3dbad398f060c517a433e4076b2aae5579",
             287_214,
         ),
         file(
             "config.json",
+            Sidecar,
             "272998dd7ba4846dcc682f0b5a46144f4bcd9dde8e94d2f17bd8e5cf2f23d6ce",
             828,
         ),
@@ -199,11 +265,13 @@ pub const OLMOE_SAFETENSORS: RealFixture = RealFixture {
 /// GGUF Q8_0 — the text tower only; llama.cpp ships `mmproj` separately.
 pub const QWEN35_GGUF: RealFixture = RealFixture {
     id: "qwen3.5-0.8b-gguf",
+    tier: Stretch,
     repo: "unsloth/Qwen3.5-0.8B-GGUF",
     revision: "6ab461498e2023f6e3c1baea90a8f0fe38ab64d0",
     license: "apache-2.0",
     files: &[file(
         "Qwen3.5-0.8B-Q8_0.gguf",
+        Weights("Q8_0"),
         "0ad885ffd4bb022fc4f0d33a3308fa108ef8613159d3b3a67e23abca056b7a6c",
         811_843_840,
     )],
@@ -213,22 +281,26 @@ pub const QWEN35_GGUF: RealFixture = RealFixture {
 /// multimodal `config.json` (`text_config` / `vision_config`).
 pub const QWEN35_SAFETENSORS: RealFixture = RealFixture {
     id: "qwen3.5-0.8b",
+    tier: Stretch,
     repo: "Qwen/Qwen3.5-0.8B",
     revision: "2fc06364715b967f1860aea9cf38778875588b17",
     license: "apache-2.0",
     files: &[
         file(
             "model.safetensors-00001-of-00001.safetensors",
+            Weights("BF16"),
             "04b1c301231dd422b8860db31311ab2721511346a32cb1e079c4c4e5f1fe4696",
             1_746_942_600,
         ),
         file(
             "model.safetensors.index.json",
+            ShardIndex,
             "d8a08838a613b025eb7952ed9db11696213e57e76a375661ef5c12f9dd5dcf4e",
             50_900,
         ),
         file(
             "config.json",
+            Sidecar,
             "b90b86f35c8e6925ef74ee04d0e758f0a845c83a42089ad82bbaa948de9b4204",
             2_907,
         ),
@@ -264,16 +336,26 @@ impl RealFixture {
         root.join(self.id)
     }
 
-    /// What to hand to `open_checkpoint`: the shard directory when the model
-    /// is multi-file or carries an index, otherwise the single weight file.
+    /// Open the verified shard index directly, or open the single weight file.
     pub fn checkpoint_path(&self, dir: &Path) -> PathBuf {
-        let weights: Vec<_> = self.files.iter().filter(|f| f.is_weights()).collect();
-        let has_index = self.files.iter().any(|f| f.file.ends_with(".index.json"));
-        if weights.len() == 1 && !has_index {
-            dir.join(weights[0].file_name())
-        } else {
-            dir.to_path_buf()
+        let mut indexes = self.files.iter().filter(|f| matches!(f.kind, ShardIndex));
+        if let Some(index) = indexes.next() {
+            assert!(
+                indexes.next().is_none(),
+                "{}: multiple pinned indexes",
+                self.id
+            );
+            return dir.join(index.file_name());
         }
+
+        let mut weights = self.files.iter().filter(|f| f.is_weights());
+        let weight = weights.next().expect("fixture must pin weights");
+        assert!(
+            weights.next().is_none(),
+            "{}: sharded fixture must pin an index",
+            self.id
+        );
+        dir.join(weight.file_name())
     }
 
     /// One pinned file's path inside a fixture directory.
@@ -365,8 +447,8 @@ static FETCH_LOCK: Mutex<()> = Mutex::new(());
 ///
 /// # Panics
 ///
-/// On a SHA-256 or size mismatch (always), and on any failure in
-/// [`Mode::Require`].
+/// On a staged or downloaded pin mismatch, detected cache corruption that
+/// cannot be repaired in this mode, or any failure in [`Mode::Require`].
 pub fn ensure(fx: &'static RealFixture, cfg: &Config) -> Outcome {
     let _guard = FETCH_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     match ensure_locked(fx, cfg) {
@@ -401,25 +483,31 @@ fn ensure_locked(fx: &RealFixture, cfg: &Config) -> Outcome {
         }
     }
 
-    // 2. The download cache. A corrupted entry is disposable: drop the bad
-    // file and let the download path refill it.
+    // 2. A missing pin can be skipped; a detected mismatch cannot. Keep
+    // bad bytes in place until the download path has verified a replacement.
     let dir = fx.fixture_dir(&cfg.cache_dir);
-    match verify_fixture_dir(fx, &dir, &stamps_dir(cfg)) {
+    let corrupt_cache = match verify_fixture_dir(fx, &dir, &stamps_dir(cfg)) {
         Ok(()) => return Outcome::Ready(dir),
-        Err(DirState::Incomplete(_)) => {}
+        Err(DirState::Incomplete(_)) => None,
         Err(DirState::Corrupt { path, why }) => {
-            eprintln!("{}: dropping bad cache entry ({why})", fx.id);
-            let _ = fs::remove_file(&path);
-            let _ = fs::remove_file(stamp_path(&stamps_dir(cfg), &path));
+            let error = format!("{}: corrupt cache entry {}: {why}", fx.id, path.display());
+            assert!(cfg.mode != Mode::Offline, "{error}");
+            eprintln!("{error}; trying to fetch a verified replacement");
+            Some(error)
         }
-    }
+    };
 
     if cfg.mode == Mode::Offline {
         return Outcome::Skipped(format!("not cached and {ENV_MODE}=offline"));
     }
     match download(fx, cfg, &dir) {
         Ok(()) => Outcome::Ready(dir),
-        Err(DownloadError::Unavailable(why)) => Outcome::Skipped(why),
+        Err(DownloadError::Unavailable(why)) => {
+            if let Some(error) = corrupt_cache {
+                panic!("{error}; could not complete repair: {why}");
+            }
+            Outcome::Skipped(why)
+        }
         Err(DownloadError::Corrupt(why)) => panic!("{}: {why}", fx.id),
     }
 }
