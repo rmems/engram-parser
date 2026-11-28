@@ -194,3 +194,9 @@ Lightweight harness checks can be run explicitly with:
 ```bash
 cargo test --locked --all-features --example checkpoint_smoke
 ```
+
+## Cross-format fixture preflight
+
+For shared BF16 Safetensors and Q8_0 GGUF baseline pins, see
+[the fixture manifest and preflight](real-fixtures.md#shared-manifest-and-preflight-rm-2367).
+It is separate from the mmap memory-budget check above.
