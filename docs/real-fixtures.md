@@ -29,7 +29,11 @@ verified by size and SHA-256, then stamped so repeat runs can skip re-hashing.
 A mismatch in pre-staged or newly downloaded files fails. A corrupt cache
 entry fails in offline mode without removing the file. In auto or
 require mode the helper tries to replace it with verified bytes and fails
-if the repair cannot finish.
+if the repair cannot finish. It stages each replacement next to the old
+file and verifies it before discarding the old copy. Leave room for the
+largest file being repaired (about 7.36 GB for the OLMoE GGUF). On a full
+disk, remove only the bad file named under the download cache and rerun
+with `ENGRAM_REAL_FIXTURES=require` to fetch a verified copy.
 
 ## Pin set
 

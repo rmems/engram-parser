@@ -37,6 +37,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use engram_parser::analysis::transformer::{
     AttentionKind, FeedForwardKind, RoleScope, TensorRole, TransformerTopology, discover_topology,
@@ -1101,11 +1102,27 @@ fn offline_cache_distinguishes_missing_from_corrupt() {
     assert!(matches!(ensure(fx, &config), Outcome::Skipped(_)));
 
     let path = dir.join("w.gguf");
-    for corrupt in [b"x".as_slice(), b"xyz"] {
-        fs::write(&path, corrupt).unwrap();
-        assert!(catch_unwind(|| ensure(fx, &config)).is_err());
-        assert_eq!(fs::read(&path).unwrap(), corrupt);
-    }
+    fs::write(&path, b"x").unwrap();
+    assert!(catch_unwind(|| ensure(fx, &config)).is_err());
+    assert_eq!(fs::read(&path).unwrap(), b"x");
+
+    // Hash the valid bytes and warm the stamp before the same-size edit.
+    fs::write(&path, b"abc").unwrap();
+    assert_eq!(ensure(fx, &config), Outcome::Ready(dir));
+    assert_eq!(fs::read_dir(cache.0.join(".stamps")).unwrap().count(), 1);
+    let stamped_mtime = fs::metadata(&path).unwrap().modified().unwrap();
+    fs::write(&path, b"xyz").unwrap();
+    // Force a distinct timestamp even on coarse-grained filesystems.
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_modified(stamped_mtime - Duration::from_secs(86_400))
+        .unwrap();
+
+    let error = catch_unwind(|| ensure(fx, &config)).expect_err("must recheck the warm cache");
+    assert!(error.downcast_ref::<String>().unwrap().contains("sha256"));
+    assert_eq!(fs::read(&path).unwrap(), b"xyz");
 }
 
 #[test]
