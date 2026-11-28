@@ -25,8 +25,15 @@ a directory of `<fixture id>/` folders; `ENGRAM_FIXTURE_CACHE` overrides the
 download cache (default `<target>/tmp/engram-real-fixtures`);
 `ENGRAM_FIXTURE_BASE_URL`
 swaps the `https://huggingface.co/` origin for a mirror. Pinned bytes are
-verified by size + SHA-256; a checksum mismatch always fails, and verified
-files carry a stamp so repeat runs skip re-hashing.
+verified by size and SHA-256, then stamped so repeat runs can skip re-hashing.
+A mismatch in pre-staged or newly downloaded files fails. A corrupt cache
+entry fails in offline mode without removing the file. In auto or
+require mode the helper tries to replace it with verified bytes and fails
+if the repair cannot finish. It stages each replacement next to the old
+file and verifies it before discarding the old copy. Leave room for the
+largest file being repaired (about 7.36 GB for the OLMoE GGUF). On a full
+disk, remove only the bad file named under the download cache and rerun
+with `ENGRAM_REAL_FIXTURES=require` to fetch a verified copy.
 
 ## Pin set
 
@@ -44,7 +51,58 @@ files carry a stamp so repeat runs skip re-hashing.
 Full pinned revisions, sizes, and SHA-256s live in
 `tests/common/real_fixtures.rs`.
 
-## Observed results (run against the pins, Windows, 2026-11)
+## Shared manifest and preflight (RM-2367)
+
+[Cross-format fixture manifest](smoke/cross-format-fixtures.tsv) lists the
+exact revision, path, bytes, SHA-256, and license for each weight and sidecar.
+The dtype column describes the artifact's weight format; GGUF can mix dtypes.
+The parity candidates are the three baseline pairs; the staged Qwen3.5 Q8_0
+stretch pair is included for topology only. The remaining optional quant ladder
+and LFM2.5 fixtures are outside this manifest. An integration test verifies
+that the manifest matches the fetch pins, so other repositories can consume
+the TSV without duplicating model lists.
+
+The ignored CPU preflight verifies downloaded bytes through the shared helper,
+opens both formats with mmap, then checks the name, dtype and normalized shape
+for `blk.0.attn_v.weight` (GGUF) and
+`model.layers.0.self_attn.v_proj.weight` (Safetensors). It does not assert that
+their values match.
+
+```bash
+# Cache-only (default for preflight); missing files print SKIP.
+ENGRAM_FIXTURE_ROOT=/models cargo test --all-features --locked \
+  --test real_fixture_preflight -- --ignored --nocapture
+
+# Require one pair and permit its pinned download if missing (~1.66 GB).
+ENGRAM_FIXTURE_ROOT=/models ENGRAM_REAL_FIXTURES=require \
+  cargo test --release --all-features --locked --test real_fixture_preflight \
+    qwen25_fixture_preflight -- --ignored --nocapture
+```
+
+The other baseline filters are `qwen3_fixture_preflight` (~2.14 GB) and
+`olmoe_fixture_preflight` (~21.20 GB). Cache-only preflight skips missing pins
+but fails on a detected size or SHA-256 mismatch in pre-staged files or
+the download cache. `require` permits repairing a cache mismatch by
+downloading a verified replacement; it never skips.
+
+### Numeric parity is not established
+
+The pinned Qwen2.5-0.5B-Instruct pair passes the structural preflight but
+does not pass a numeric parity check. The Q8_0 GGUF
+(`9217f5db79a29953eb74d5343926648285ec7e67`) and BF16 Safetensors
+(`7ae557604adf67be50417f59c2c2f167def9a775`) produce, respectively,
+`0.0037572384` and `0.006652832` at V projection element 0 after decoding.
+The absolute difference (`0.0028955936`) exceeds the expected Q8_0 rounding
+bound for the source block (`0.0000751873`), including the quantization
+half-step and rounding the scale to F16. Independent `gguf-py==0.19.0`
+and direct Safetensors BF16 byte reads reproduced the discrepancy. The
+corresponding F32 GGUF and BF16 Safetensors input norm also differed, so this
+should not be dismissed as Q8_0 noise. The observation does not establish the
+cause. Confirm conversion provenance or repin a verified common weight source
+before treating the pair as a numeric parity gate. No numeric result is
+claimed for Qwen3 or OLMoE.
+
+## Observed topology results (run against the pins, Windows, 2026-11)
 
 | Model | Format | Layers | Experts | Unknowns |
 |---|---|---|---|---|

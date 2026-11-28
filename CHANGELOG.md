@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- **Pinned cross-format fixture preflight ([RM-2367](https://linear.app/rpd-34/issue/RM-2367)):**
+  Publishes the fetch pins as a checked TSV manifest and adds an opt-in,
+  cache-first structural preflight for the required baseline pairs. See
+  `docs/real-fixtures.md` for scope and the Qwen2.5 numeric mismatch finding.
 - **Independent gguf-py dequant oracle ([RM-2209](https://linear.app/rpd-34/issue/RM-2209)):**
   `tests/fixtures/golden/generate_oracle.py` writes `oracle/<dtype>.bin`
   vectors for all eight GGUF wire dtypes by decoding the same packed

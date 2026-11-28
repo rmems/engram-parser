@@ -1,0 +1,17 @@
+id	tier	repo	revision	file	dtype	bytes	sha256	license
+qwen3-0.6b-gguf	baseline	Qwen/Qwen3-0.6B-GGUF	23749fefcc72300e3a2ad315e1317431b06b590a	Qwen3-0.6B-Q8_0.gguf	Q8_0	639446688	9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031	apache-2.0
+qwen3-0.6b	baseline	Qwen/Qwen3-0.6B	c1899de289a04d12100db370d81485cdf75e47ca	model.safetensors	BF16	1503300328	f47f71177f32bcd101b7573ec9171e6a57f4f4d31148d38e382306f42996874b	apache-2.0
+qwen3-0.6b	baseline	Qwen/Qwen3-0.6B	c1899de289a04d12100db370d81485cdf75e47ca	config.json	metadata	726	660db3b73d788119c04535e48cf9be5f55bc3100841a718637ae695b442f27dd	apache-2.0
+qwen2.5-0.5b-instruct-gguf	baseline	Qwen/Qwen2.5-0.5B-Instruct-GGUF	9217f5db79a29953eb74d5343926648285ec7e67	qwen2.5-0.5b-instruct-q8_0.gguf	Q8_0	675710816	ca59ca7f13d0e15a8cfa77bd17e65d24f6844b554a7b6c12e07a5f89ff76844e	apache-2.0
+qwen2.5-0.5b-instruct	baseline	Qwen/Qwen2.5-0.5B-Instruct	7ae557604adf67be50417f59c2c2f167def9a775	model.safetensors	BF16	988097824	fdf756fa7fcbe7404d5c60e26bff1a0c8b8aa1f72ced49e7dd0210fe288fb7fe	apache-2.0
+qwen2.5-0.5b-instruct	baseline	Qwen/Qwen2.5-0.5B-Instruct	7ae557604adf67be50417f59c2c2f167def9a775	config.json	metadata	659	18e18afcaccafade98daf13a54092927904649e1dd4eba8299ab717d5d94ff45	apache-2.0
+olmoe-0125-instruct-gguf	baseline	allenai/OLMoE-1B-7B-0125-Instruct-GGUF	2ac1d27317927518c9ef7bd99f91f3f1e4ee288d	OLMoE-1B-7B-0125-Instruct-Q8_0.gguf	Q8_0	7359942656	d4e5c4f4925fc3b685b77f6f04a2647d964b768127d329a7cd421ca8e8259f39	apache-2.0
+olmoe-0125-instruct	baseline	allenai/OLMoE-1B-7B-0125-Instruct	b89a7c4bc24fb9e55ce2543c9458ce0ca5c4650e	model-00001-of-00003.safetensors	BF16	4997744872	61874210ca7c360f43f8c622cecc12441083d40190eae3b56bc9d6e1c0a30c1e	apache-2.0
+olmoe-0125-instruct	baseline	allenai/OLMoE-1B-7B-0125-Instruct	b89a7c4bc24fb9e55ce2543c9458ce0ca5c4650e	model-00002-of-00003.safetensors	BF16	4997235176	c523a43b8a17269d5fab33395048a83633f4d1d89c1958570cea738e2bbe80c9	apache-2.0
+olmoe-0125-instruct	baseline	allenai/OLMoE-1B-7B-0125-Instruct	b89a7c4bc24fb9e55ce2543c9458ce0ca5c4650e	model-00003-of-00003.safetensors	BF16	3843741912	97ae01e3519c52e63a018bca96ab17a89c4cd5cab1c6d742efed0fa5c0e2bb17	apache-2.0
+olmoe-0125-instruct	baseline	allenai/OLMoE-1B-7B-0125-Instruct	b89a7c4bc24fb9e55ce2543c9458ce0ca5c4650e	model.safetensors.index.json	metadata	287214	0e2e1e0d8d357ac7af817cff28410c3dbad398f060c517a433e4076b2aae5579	apache-2.0
+olmoe-0125-instruct	baseline	allenai/OLMoE-1B-7B-0125-Instruct	b89a7c4bc24fb9e55ce2543c9458ce0ca5c4650e	config.json	metadata	828	272998dd7ba4846dcc682f0b5a46144f4bcd9dde8e94d2f17bd8e5cf2f23d6ce	apache-2.0
+qwen3.5-0.8b-gguf	stretch	unsloth/Qwen3.5-0.8B-GGUF	6ab461498e2023f6e3c1baea90a8f0fe38ab64d0	Qwen3.5-0.8B-Q8_0.gguf	Q8_0	811843840	0ad885ffd4bb022fc4f0d33a3308fa108ef8613159d3b3a67e23abca056b7a6c	apache-2.0
+qwen3.5-0.8b	stretch	Qwen/Qwen3.5-0.8B	2fc06364715b967f1860aea9cf38778875588b17	model.safetensors-00001-of-00001.safetensors	BF16	1746942600	04b1c301231dd422b8860db31311ab2721511346a32cb1e079c4c4e5f1fe4696	apache-2.0
+qwen3.5-0.8b	stretch	Qwen/Qwen3.5-0.8B	2fc06364715b967f1860aea9cf38778875588b17	model.safetensors.index.json	metadata	50900	d8a08838a613b025eb7952ed9db11696213e57e76a375661ef5c12f9dd5dcf4e	apache-2.0
+qwen3.5-0.8b	stretch	Qwen/Qwen3.5-0.8B	2fc06364715b967f1860aea9cf38778875588b17	config.json	metadata	2907	b90b86f35c8e6925ef74ee04d0e758f0a845c83a42089ad82bbaa948de9b4204	apache-2.0
