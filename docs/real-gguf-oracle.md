@@ -21,16 +21,16 @@ outside the checkout, and verify SHA-256. Both are Apache-2.0.
 | `qwen2.5-0.5b-instruct-q5_k_m.gguf` | 522186592 | `041474553fcabfc2a2d67903f9d2c2e50bd92528e670da4f33b5d0ce6e59fd55` |
 
 ```bash
-uv run --with 'gguf==0.19.0' env \\
-  ENGRAM_GGUF=/models/qwen2.5-0.5b-instruct-q8_0.gguf \\
-  ENGRAM_GGUF_ORACLE_PYTHON=python ENGRAM_GGUF_ORACLE_DTYPES=Q8_0 \\
-  cargo test --locked --features mmap --test real_gguf \\
+uv run --with 'gguf==0.19.0' env \
+  ENGRAM_GGUF=/models/qwen2.5-0.5b-instruct-q8_0.gguf \
+  ENGRAM_GGUF_ORACLE_PYTHON=python ENGRAM_GGUF_ORACLE_DTYPES=Q8_0 \
+  cargo test --locked --features mmap --test real_gguf \
   real_gguf_gguf_py_conformance -- --ignored --nocapture
 
-uv run --with 'gguf==0.19.0' env \\
-  ENGRAM_GGUF=/models/qwen2.5-0.5b-instruct-q5_k_m.gguf \\
-  ENGRAM_GGUF_ORACLE_PYTHON=python ENGRAM_GGUF_ORACLE_DTYPES=Q5_K,Q6_K \\
-  cargo test --locked --features mmap --test real_gguf \\
+uv run --with 'gguf==0.19.0' env \
+  ENGRAM_GGUF=/models/qwen2.5-0.5b-instruct-q5_k_m.gguf \
+  ENGRAM_GGUF_ORACLE_PYTHON=python ENGRAM_GGUF_ORACLE_DTYPES=Q5_K,Q6_K \
+  cargo test --locked --features mmap --test real_gguf \
   real_gguf_gguf_py_conformance -- --ignored --nocapture
 ```
 
