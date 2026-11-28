@@ -494,3 +494,110 @@ fn real_gguf_mmap_parity() {
         }
     }
 }
+
+/// Opt in with an interpreter that has the same gguf-py pin as the synthetic
+/// oracle. Setting ENGRAM_GGUF alone preserves the existing pilot behavior.
+#[cfg(feature = "mmap")]
+#[test]
+#[ignore = "requires a local GGUF and pinned gguf-py; see docs/real-gguf-oracle.md"]
+fn real_gguf_gguf_py_conformance() {
+    use engram_parser::{Checkpoint, DType, TensorDType, open_checkpoint_mmap};
+    use std::process::Command;
+
+    let Some(python) = env::var_os("ENGRAM_GGUF_ORACLE_PYTHON") else {
+        eprintln!("SKIP: set ENGRAM_GGUF_ORACLE_PYTHON to opt in");
+        return;
+    };
+    let model = env::var_os(ENV_GGUF).expect("set ENGRAM_GGUF to a local GGUF file");
+    let requested = env::var("ENGRAM_GGUF_ORACLE_DTYPES")
+        .expect("select ENGRAM_GGUF_ORACLE_DTYPES=Q8_0 or Q5_K,Q6_K");
+    let checkpoint = open_checkpoint_mmap(&model).expect("open GGUF for conformance");
+    let oracle =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/golden/real_gguf_oracle.py");
+    let mut tested = Vec::new();
+    for label in requested.split(',').map(str::trim) {
+        let dtype = match label {
+            "Q8_0" => DType::Q8_0,
+            "Q5_K" => DType::Q5_K,
+            "Q6_K" => DType::Q6_K,
+            _ => panic!("unsupported conformance dtype {label:?}; choose Q8_0, Q5_K, or Q6_K"),
+        };
+        assert!(!tested.contains(&dtype), "repeated dtype {label}");
+        tested.push(dtype);
+
+        // Compare a complete real tensor, but keep peak memory bounded.
+        // The tie break by name keeps this selection deterministic.
+        const MAX_ELEMENTS: usize = 8_388_608;
+        let tensor = checkpoint
+            .tensors()
+            .iter()
+            .filter(|t| {
+                t.dtype
+                    == (TensorDType::GgufPacked {
+                        ggml_type: dtype.ggml_type(),
+                    })
+                    && t.shape
+                        .element_count()
+                        .is_some_and(|n| (1..=MAX_ELEMENTS).contains(&n))
+            })
+            .min_by_key(|t| (t.byte_len, &t.name))
+            .unwrap_or_else(|| panic!("no {label} tensor with 1..={MAX_ELEMENTS} elements"));
+        let elements = tensor.shape.element_count().expect("bounded tensor size");
+        let local = dequantize_packed(
+            dtype,
+            &checkpoint
+                .tensor_bytes(&tensor.name)
+                .expect("packed payload"),
+            &tensor.shape.native_dims(),
+        )
+        .expect("engram-parser dequantization");
+        assert_eq!(local.len(), elements, "{}: local f32 count", tensor.name);
+
+        // gguf-py independently resolves the tensor by name and decodes its own
+        // view of the bytes, so this also checks checkpoint offset handling.
+        let external = Command::new(&python)
+            .arg(&oracle)
+            .arg(&model)
+            .arg(&tensor.name)
+            .arg(label)
+            .arg(elements.to_string())
+            .output()
+            .unwrap_or_else(|err| panic!("run gguf-py with {python:?}: {err}"));
+        assert!(
+            external.status.success(),
+            "gguf-py on {}: {}",
+            tensor.name,
+            String::from_utf8_lossy(&external.stderr)
+        );
+        assert_eq!(
+            external.stdout.len(),
+            elements * 4,
+            "{}: oracle f32 byte count",
+            tensor.name
+        );
+
+        let mut max_abs = 0_f64;
+        let mut max_rel = 0_f64;
+        let mut outside = 0;
+        for (got, expected) in local.iter().zip(external.stdout.as_chunks::<4>().0) {
+            let expected = f64::from(f32::from_le_bytes(*expected));
+            let got = f64::from(*got);
+            assert!(
+                expected.is_finite() && got.is_finite(),
+                "{}: non-finite value",
+                tensor.name
+            );
+            let abs = (got - expected).abs();
+            max_abs = max_abs.max(abs);
+            max_rel = max_rel.max(abs / expected.abs().max(1e-12));
+            if abs > 1e-7 + 1e-6 * expected.abs() {
+                outside += 1;
+            }
+        }
+        eprintln!(
+            "{label} {} ({elements} values): max_abs={max_abs:.6e} max_rel={max_rel:.6e} outside={outside}",
+            tensor.name
+        );
+        assert_eq!(outside, 0, "{label} {}: conformance mismatch", tensor.name);
+    }
+}

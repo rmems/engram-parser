@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- **Real GGUF dequantization conformance ([RM-2013](https://linear.app/rpd-34/issue/RM-2013)):**
+  An ignored, CPU-only test compares complete Q8_0, Q5_K, and Q6_K tensors
+  against gguf-py reading the same pinned GGUF files independently.
+  See `docs/real-gguf-oracle.md` for commands and observed errors.
+
 - **Pinned cross-format fixture preflight ([RM-2367](https://linear.app/rpd-34/issue/RM-2367)):**
   Publishes the fetch pins as a checked TSV manifest and adds an opt-in,
   cache-first structural preflight for the required baseline pairs. See
